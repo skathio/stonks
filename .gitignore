@@ -1,0 +1,14 @@
+# Private research notes — edge thesis, failure conditions, backtest observations,
+# decision logs. Local-only by design. Only the blank template is tracked.
+notes/*
+!notes/TEMPLATE.md
+!notes/.gitkeep
+
+# Historical OHLCV data — large binary-ish CSVs, local only
+data/
+
+# Training artifacts and backtest output — local only
+results/
+
+# Private Python training / backtesting pipeline
+scripts/

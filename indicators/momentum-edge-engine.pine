@@ -1,0 +1,393 @@
+//@version=6
+// ============================================================
+// Momentum Edge — Swing Engine (Daily Edition) — 2026-05-31
+// Pine Script v6 | System: Indicator 1 of 2 (pairs with Momentum Edge — Regime & Quality)
+// ============================================================
+// Regime:    US equities daily. Established uptrends releasing from a volatility
+//            contraction to new highs (Mode A), or pulling back to a rising MA and
+//            resuming (Mode B). Long-only. Hunts STRENGTH, not exhaustion.
+//            Breaks in: choppy/range tape, bear markets, illiquid names, sub-daily TFs.
+// Edge:      Momentum continuation (behavioral underreaction) + volatility
+//            contraction→expansion (structural) + RS leadership (cross-sectional
+//            momentum) + supply-overhang clearance on a volume-backed breakout.
+// Failure:   Earnings/news gaps past the trail. Failed breakouts in chop. Extended
+//            entries (capped). Late-stage blow-offs (trail handles exit, not entry).
+// Repaint:   Breakout uses ta.highest(high,N)[1] (prior high). Benchmark read uses
+//            lookahead_off + close[1]. k-means window is past-only (atr%[1..trainLen]).
+//            All signals + trail ratchet gate on barstate.isconfirmed.
+// AI:        3-cluster k-means on ATR% adapts the trailing-stop width + labels the
+//            current volatility regime. No future leakage; centroids from past window.
+// ============================================================
+
+indicator(
+    title            = "Momentum Edge — Swing Engine",
+    shorttitle       = "ME Engine",
+    overlay          = true,
+    max_lines_count  = 50,
+    max_labels_count = 100,
+    max_boxes_count  = 50)
+
+// ============================================================
+// 1. INPUTS
+// ============================================================
+
+i_emaFast     = input.int(9,     "EMA Fast",                  minval=1,                group="Trend")
+i_emaMid      = input.int(21,    "EMA Mid",                   minval=1,                group="Trend")
+i_emaBase     = input.int(50,    "EMA Base",                  minval=1,                group="Trend")
+
+i_atrLen      = input.int(14,    "ATR Length",                minval=1,                group="Volatility Regime (k-means)")
+i_kmTrain     = input.int(100,   "k-means Training Window",   minval=20, maxval=300,   group="Volatility Regime (k-means)")
+i_kmIters     = input.int(8,     "k-means Iterations",        minval=1,  maxval=25,    group="Volatility Regime (k-means)")
+
+i_useBreakout = input.bool(true, "Enable Mode A: Breakout",                            group="Breakout (Mode A)")
+i_breakoutLen = input.int(20,    "Breakout Lookback (prior high)", minval=5, maxval=100, group="Breakout (Mode A)")
+i_bbLen       = input.int(20,    "Squeeze BB/KC Length",      minval=5,                group="Breakout (Mode A)")
+i_bbStd       = input.float(2.0, "Squeeze BB Std Dev",        minval=0.5, step=0.1,    group="Breakout (Mode A)")
+i_kcMult      = input.float(1.5, "Squeeze KC ATR Mult",       minval=0.5, step=0.1,    group="Breakout (Mode A)")
+i_squeezeLook = input.int(15,    "Squeeze Recency (bars)",    minval=1, maxval=60,     group="Breakout (Mode A)")
+
+i_usePullback = input.bool(true, "Enable Mode B: Pullback",                            group="Pullback (Mode B)")
+i_pullLook    = input.int(8,     "Pullback Lookback (bars)",  minval=2, maxval=30,     group="Pullback (Mode B)")
+i_pullSlope   = input.int(10,    "Mid-EMA Slope Lookback",    minval=1, maxval=40,     group="Pullback (Mode B)")
+i_pullTolAtr  = input.float(0.5, "Pullback Touch Tol (ATR)",  minval=0.0, step=0.1,    group="Pullback (Mode B)")
+i_bodyAtrMult = input.float(0.5, "Reclaim Body (ATR)",        minval=0.0, step=0.05,   group="Pullback (Mode B)")
+
+i_bench       = input.symbol("SPY", "Benchmark Symbol",                                group="Relative Strength")
+i_rsLen       = input.int(20,    "RS EMA Smoothing",          minval=1, maxval=60,     group="Relative Strength")
+i_rsLookback  = input.int(5,     "RS Rising Lookback (bars)", minval=1, maxval=30,     group="Relative Strength")
+i_useRsGate   = input.bool(true, "Require RS Leading Benchmark",                       group="Relative Strength")
+
+i_volMaLen    = input.int(20,    "Volume MA Length",          minval=1,                group="Volume")
+i_volMult     = input.float(1.3, "Volume Surge (>x MA)",      minval=1.0, step=0.1,    group="Volume")
+
+i_maxExtAtr   = input.float(4.0, "Max Extension from Mid (ATR)", minval=1.0, step=0.5, group="Filters")
+
+i_atrStopX    = input.float(2.0, "Initial Stop (ATR)",        minval=0.5, step=0.1,    group="Risk / Exit")
+i_atrTrail    = input.float(2.5, "Trail (adaptive ATR)",      minval=0.5, step=0.1,    group="Risk / Exit")
+i_tp1Mult     = input.float(4.0, "TP1 Distance (ATR)",        minval=0.5, step=0.5,    group="Risk / Exit")
+i_tp1Pct      = input.float(25.0,"TP1 % of Position",         minval=0.0, maxval=90.0, group="Risk / Exit")
+i_useTimeStop = input.bool(false,"Enable Time Stop",                                   group="Risk / Exit")
+i_maxHold     = input.int(60,    "Time Stop (bars, if pre-TP1)", minval=5,             group="Risk / Exit")
+
+i_cooldown    = input.int(5,     "Cooldown (bars)",           minval=1, maxval=60,     group="Signal")
+i_commPct     = input.float(0.05,"Commission % per side",     minval=0.0, step=0.01,   group="Signal")
+i_slipPct     = input.float(0.05,"Slippage % per side",       minval=0.0, step=0.01,   group="Signal")
+
+i_showDash    = input.bool(true, "Show Dashboard",                                     group="Display")
+i_showLines   = input.bool(true, "Show Entry/Stop/TP Lines",                           group="Display")
+
+// ============================================================
+// 2. CORE CALCULATIONS
+// ============================================================
+
+emaFast = ta.ema(close, i_emaFast)
+emaMid  = ta.ema(close, i_emaMid)
+emaBase = ta.ema(close, i_emaBase)
+
+atrVal  = ta.atr(i_atrLen)
+atrPct  = close > 0.0 ? (atrVal / close) * 100.0 : 0.0
+// k-means clusters atrPct[1..i_kmTrain] (variable offset). ATR% (not raw ATR) keeps the
+// clusters scale-invariant over the window — a stock that re-prices doesn't drift the
+// centroids. Reserve a history buffer comfortably above the max training window.
+max_bars_back(atrPct, 350)
+
+plot(i_showLines ? emaFast : na, "EMA Fast", color=color.new(#2196F3, 30), linewidth=1)
+plot(i_showLines ? emaMid  : na, "EMA Mid",  color=color.new(#FF6D00, 30), linewidth=1)
+plot(i_showLines ? emaBase : na, "EMA Base", color=color.new(#FDD835, 10), linewidth=2)
+
+// ── Trend filter (uptrend intact; fast-EMA dip allowed) ──────
+uptrend = close > emaBase and emaMid > emaBase
+
+// ── Relative strength vs benchmark (confirmed prior-bar) ─────
+benchClose = request.security(i_bench, timeframe.period, close[1], lookahead=barmerge.lookahead_off)
+rsRatio    = benchClose > 0.0 ? (close / benchClose) * 100.0 : na
+rsEma      = ta.ema(rsRatio, i_rsLen)
+rsLeading  = rsEma > rsEma[1] or rsEma > rsEma[i_rsLookback]
+
+// ── Volume participation ─────────────────────────────────────
+volMa    = ta.sma(volume, i_volMaLen)
+rvol     = volMa > 0.0 ? volume / volMa : 1.0
+volSurge = volume > volMa * i_volMult
+
+// ── Extension cap (don't chase) ──────────────────────────────
+extAtr      = atrVal > 0.0 ? (close - emaMid) / atrVal : 0.0
+notExtended = extAtr <= i_maxExtAtr
+
+// ============================================================
+// 3. k-MEANS ADAPTIVE VOLATILITY REGIME  ("AI" component)
+// ============================================================
+// Three-cluster Lloyd's k-means over the trailing window of ATR% (past bars only).
+// Returns the low / mid / high centroids; the current bar is assigned to its nearest
+// centroid, whose value drives the adaptive trail width and the regime label.
+// No future leakage: window = atr%[1 .. trainLen]; current-bar assignment uses past
+// centroids + the current confirmed atr%.
+
+f_kmeansVol(float src, int trainLen, int iters) =>
+    array<float> data = array.new<float>()
+    for i = 1 to trainLen
+        v = src[i]
+        if not na(v)
+            array.push(data, v)
+    int n = array.size(data)
+    float cLow  = na
+    float cMid  = na
+    float cHigh = na
+    if n >= 3
+        cLow  := array.min(data)
+        cHigh := array.max(data)
+        cMid  := array.avg(data)
+        for _it = 0 to iters - 1
+            float sLow  = 0.0
+            float sMid  = 0.0
+            float sHigh = 0.0
+            int   nLow  = 0
+            int   nMid  = 0
+            int   nHigh = 0
+            for j = 0 to n - 1
+                float vj = array.get(data, j)
+                float dL = math.abs(vj - cLow)
+                float dM = math.abs(vj - cMid)
+                float dH = math.abs(vj - cHigh)
+                if dL <= dM and dL <= dH
+                    sLow  += vj
+                    nLow  += 1
+                else if dM <= dH
+                    sMid  += vj
+                    nMid  += 1
+                else
+                    sHigh += vj
+                    nHigh += 1
+            cLow  := nLow  > 0 ? sLow  / nLow  : cLow
+            cMid  := nMid  > 0 ? sMid  / nMid  : cMid
+            cHigh := nHigh > 0 ? sHigh / nHigh : cHigh
+    [cLow, cMid, cHigh]
+
+[cLow, cMid, cHigh] = f_kmeansVol(atrPct, i_kmTrain, i_kmIters)
+kmReady = not na(cLow) and not na(cHigh) and cHigh > cLow
+
+distL = math.abs(atrPct - cLow)
+distM = math.abs(atrPct - cMid)
+distH = math.abs(atrPct - cHigh)
+volCluster   = not kmReady ? 1 : (distL <= distM and distL <= distH ? 0 : (distM <= distH ? 1 : 2))
+adaptivePct  = not kmReady ? atrPct : (volCluster == 0 ? cLow : volCluster == 1 ? cMid : cHigh)
+adaptiveAtr  = close > 0.0 ? adaptivePct / 100.0 * close : atrVal   // regime centroid back to price units
+volRegimeStr = volCluster == 0 ? "Low" : volCluster == 1 ? "Mid" : "High"
+
+// ============================================================
+// 4. TRIGGERS — Mode A (breakout) + Mode B (pullback)
+// ============================================================
+
+// ── Volatility squeeze (TTM-style: BB inside KC = contraction) ──
+[bbMid, bbUpper, bbLower] = ta.bb(close, i_bbLen, i_bbStd)
+kcMid    = ta.ema(close, i_bbLen)
+kcRange  = ta.atr(i_bbLen) * i_kcMult
+kcUpper  = kcMid + kcRange
+kcLower  = kcMid - kcRange
+squeezeOn        = bbLower > kcLower and bbUpper < kcUpper
+recentlySqueezed = ta.barssince(squeezeOn) <= i_squeezeLook
+
+// ── Mode A: breakout from contraction (prior high, no current-bar leak) ──
+priorHigh    = ta.highest(high, i_breakoutLen)[1]
+breakoutTrig = close > priorHigh and recentlySqueezed
+
+// ── Mode B: pullback-to-rising-mid + reclaim ─────────────────
+emaMidRising = emaMid > emaMid[i_pullSlope]
+nearMidRecent = ta.lowest(low - emaMid, i_pullLook) <= i_pullTolAtr * atrVal
+strongBull    = close > open and (close - open) >= i_bodyAtrMult * atrVal
+reclaim       = close > high[1] and close > emaFast
+pullbackTrig  = emaMidRising and nearMidRecent and strongBull and reclaim
+
+// ── Combined raw trigger ─────────────────────────────────────
+baseOk  = uptrend and (not i_useRsGate or rsLeading) and volSurge and notExtended
+rawLong = baseOk and ((i_useBreakout and breakoutTrig) or (i_usePullback and pullbackTrig))
+
+// ============================================================
+// 5. POSITION STATE MACHINE  (entry / TP1 / trail / exit)
+// ============================================================
+
+var bool  inPosition      = false
+var float entryPrice      = na
+var int   entryBar        = na
+var int   lastSignalBar   = na
+var float stopLine        = na
+var float tp1Price        = na
+var bool  tp1Filled       = false
+
+// ── Performance accumulators (closed trades) ─────────────────
+var int   nTrades   = 0
+var int   nWins     = 0
+var int   nLoss     = 0
+var float grossWin  = 0.0
+var float grossLoss = 0.0
+var float sumRet    = 0.0
+var float equity    = 100.0
+var float peakEquity = 100.0
+var float maxDD     = 0.0
+
+// nz fallback => first-ever signal is allowed (treated as cooldown already elapsed)
+barsSinceSig = bar_index - nz(lastSignalBar, bar_index - i_cooldown)
+
+// Trail ratchet — confirmed bull bars only (no intrabar flicker)
+if barstate.isconfirmed and inPosition and close > open and not na(stopLine)
+    stopLine := math.max(stopLine, close - i_atrTrail * adaptiveAtr)
+
+// ── Entry / exit conditions (evaluated on pre-update state) ──
+canEnter   = rawLong and barsSinceSig >= i_cooldown and not inPosition
+trailHit   = inPosition and not na(stopLine) and close < stopLine
+trendBreak = inPosition and close < emaBase
+timeStop   = i_useTimeStop and inPosition and not tp1Filled and not na(entryBar) and (bar_index - entryBar) > i_maxHold
+tp1Hit     = inPosition and not na(tp1Price) and not tp1Filled and close >= tp1Price
+exitAll    = inPosition and (trailHit or trendBreak or timeStop)
+
+sigEntry = barstate.isconfirmed and canEnter
+sigTp1   = barstate.isconfirmed and tp1Hit
+sigExit  = barstate.isconfirmed and exitAll
+
+commission = i_commPct / 100.0
+slippage   = i_slipPct / 100.0
+
+if sigEntry
+    inPosition    := true
+    lastSignalBar := bar_index
+    entryPrice    := close
+    entryBar      := bar_index
+    stopLine      := close - i_atrStopX * adaptiveAtr
+    tp1Price      := close + i_tp1Mult * atrVal
+    tp1Filled     := false
+
+if sigTp1
+    tp1Filled := true
+
+if sigExit
+    entryNet    = entryPrice * (1.0 + commission + slippage)
+    exitNet     = close * (1.0 - commission - slippage)
+    frac        = i_tp1Pct / 100.0
+    blendedExit = tp1Filled ? frac * (tp1Price * (1.0 - commission - slippage)) + (1.0 - frac) * exitNet : exitNet
+    ret         = entryNet > 0.0 ? (blendedExit - entryNet) / entryNet * 100.0 : 0.0
+
+    nTrades += 1
+    sumRet  += ret
+    equity  := equity * (1.0 + ret / 100.0)
+    peakEquity := math.max(peakEquity, equity)
+    dd      = peakEquity > 0.0 ? (peakEquity - equity) / peakEquity * 100.0 : 0.0
+    maxDD   := math.max(maxDD, dd)
+    if ret > 0.0
+        nWins    += 1
+        grossWin += ret
+    else
+        nLoss     += 1
+        grossLoss += -ret
+
+    inPosition := false
+    entryPrice := na
+    entryBar   := na
+    stopLine   := na
+    tp1Price   := na
+    tp1Filled  := false
+
+// ============================================================
+// 6. PLOTS — signals & trade levels
+// ============================================================
+
+if sigEntry
+    label.new(
+        x         = bar_index,
+        y         = low,
+        text      = "▲ LONG",
+        style     = label.style_label_up,
+        color     = color.new(#00C853, 5),
+        textcolor = color.white,
+        size      = size.normal,
+        tooltip   = (breakoutTrig ? "Breakout" : "Pullback") + "  |  ATR " + str.tostring(math.round(atrPct, 2)) + "%  |  Vol " + volRegimeStr)
+
+plotshape(sigTp1, title="TP1 Hit",
+    style=shape.triangledown, location=location.abovebar,
+    color=color.new(#00BCD4, 15), size=size.small)
+
+plotshape(sigExit, title="Exit",
+    style=shape.xcross, location=location.abovebar,
+    color=color.new(#EF5350, 20), size=size.tiny)
+
+plot(i_showLines and inPosition ? stopLine : na, "Trail/Stop",
+    color=color.new(#FF9800, 0), linewidth=1, style=plot.style_linebr)
+plot(i_showLines and inPosition ? entryPrice : na, "Entry",
+    color=color.new(color.white, 45), linewidth=1, style=plot.style_linebr)
+plot(i_showLines and inPosition and not tp1Filled ? tp1Price : na, "TP1",
+    color=color.new(#26A69A, 0), linewidth=1, style=plot.style_linebr)
+
+bgcolor(inPosition ? color.new(#00C853, 94) : na, title="In-position tint")
+
+// ============================================================
+// 7. DASHBOARD — state + live trade journal (dark, compact)
+// ============================================================
+
+var color C_BG   = color.new(#0F111A,  6)
+var color C_HDR  = color.new(#1A2035,  0)
+var color C_LBL  = color.new(#161C2D,  0)
+var color C_NEUT = color.new(#1E2537,  0)
+var color C_BULL = color.new(#0ECB81, 12)
+var color C_BEAR = color.new(#F6465D, 12)
+var color C_WARN = color.new(#F0B90B, 12)
+var color C_SEP  = color.new(#2D3748,  0)
+var color TC_DIM = color.new(#94A3B8,  0)
+
+var table dash = table.new(
+    position.bottom_right, 2, 15,
+    bgcolor      = C_BG,
+    frame_color  = color.new(#30363D, 0),
+    frame_width  = 1,
+    border_color = color.new(#1E2537, 0),
+    border_width = 1)
+
+f_row(int r, string lbl, string val, color valBg) =>
+    table.cell(dash, 0, r, lbl, bgcolor=C_LBL, text_color=TC_DIM, text_size=size.small, text_halign=text.align_left)
+    table.cell(dash, 1, r, val, bgcolor=valBg, text_color=color.white, text_size=size.small, text_halign=text.align_center)
+
+if barstate.islast and i_showDash
+    winRate = nTrades > 0 ? nWins / nTrades * 100.0 : 0.0
+    avgWin  = nWins > 0 ? grossWin / nWins : 0.0
+    avgLoss = nLoss > 0 ? grossLoss / nLoss : 0.0
+    pf      = grossLoss > 0.0 ? grossWin / grossLoss : na
+    expR    = nTrades > 0 ? sumRet / nTrades : 0.0
+    totRet  = equity - 100.0
+    openPnl = inPosition and not na(entryPrice) and entryPrice > 0.0 ? (close - entryPrice) / entryPrice * 100.0 : 0.0
+
+    // Header
+    table.cell(dash, 0, 0, "Momentum Edge", bgcolor=C_HDR, text_color=color.white, text_size=size.small, text_halign=text.align_left)
+    table.cell(dash, 1, 0, inPosition ? "● LONG" : "○ FLAT",
+        bgcolor=inPosition ? C_BULL : C_NEUT, text_color=color.white, text_size=size.small, text_halign=text.align_center)
+
+    // Live state
+    f_row(1, "Open P&L", inPosition ? (openPnl >= 0.0 ? "+" : "") + str.tostring(math.round(openPnl, 2)) + "%" : "—",
+        inPosition ? (openPnl >= 0.0 ? C_BULL : C_BEAR) : C_NEUT)
+    f_row(2, "Trend", uptrend ? "↑ Up" : "↓ Down", uptrend ? C_BULL : C_BEAR)
+    f_row(3, "RS vs " + i_bench, rsLeading ? "Leading" : "Lagging", rsLeading ? C_BULL : C_BEAR)
+    f_row(4, "Vol Regime", volRegimeStr, volCluster == 2 ? C_WARN : C_NEUT)
+    f_row(5, "Squeeze", squeezeOn ? "● ON" : recentlySqueezed ? "released" : "—", squeezeOn ? C_WARN : recentlySqueezed ? color.new(#0ECB81, 35) : C_NEUT)
+    f_row(6, "Ext (ATR)", str.tostring(math.round(extAtr, 1)) + (notExtended ? "" : " ✗"), notExtended ? C_NEUT : C_BEAR)
+
+    table.cell(dash, 0, 7, "", bgcolor=C_SEP, text_size=size.tiny)
+    table.cell(dash, 1, 7, "JOURNAL", bgcolor=C_SEP, text_color=TC_DIM, text_size=size.tiny, text_halign=text.align_center)
+
+    f_row(8,  "Trades", str.tostring(nTrades), C_NEUT)
+    f_row(9,  "Win %", nTrades > 0 ? str.tostring(math.round(winRate, 1)) + "%" : "—", winRate >= 50.0 ? C_BULL : nTrades > 0 ? C_WARN : C_NEUT)
+    f_row(10, "Profit Factor", na(pf) ? "—" : str.tostring(math.round(pf, 2)), na(pf) ? C_NEUT : pf >= 1.5 ? C_BULL : pf >= 1.0 ? C_WARN : C_BEAR)
+    f_row(11, "Avg W / L", nTrades > 0 ? "+" + str.tostring(math.round(avgWin, 1)) + " / " + str.tostring(math.round(-avgLoss, 1)) : "—", C_NEUT)
+    f_row(12, "Expectancy", nTrades > 0 ? (expR >= 0.0 ? "+" : "") + str.tostring(math.round(expR, 2)) + "%" : "—", expR >= 0.0 ? C_BULL : C_BEAR)
+    f_row(13, "Total Return", (totRet >= 0.0 ? "+" : "") + str.tostring(math.round(totRet, 1)) + "%", totRet >= 0.0 ? C_BULL : C_BEAR)
+    f_row(14, "Max DD", "-" + str.tostring(math.round(maxDD, 1)) + "%", maxDD <= 20.0 ? C_NEUT : C_BEAR)
+
+// ============================================================
+// 8. ALERTS
+// ============================================================
+
+alertcondition(sigEntry, title="LONG ENTRY",
+    message="Momentum Edge: LONG {{ticker}} @ {{close}} on {{interval}}")
+alertcondition(sigTp1, title="TP1 HIT",
+    message="Momentum Edge: TP1 hit {{ticker}} @ {{close}} — scale out partial")
+alertcondition(sigExit, title="EXIT",
+    message="Momentum Edge: EXIT {{ticker}} @ {{close}} on {{interval}}")
+
+// ============================================================
+// END — Momentum Edge — Swing Engine
+// ============================================================

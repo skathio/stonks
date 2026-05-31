@@ -1,0 +1,308 @@
+//@version=6
+// ============================================================
+// Momentum Edge — Regime & Quality (Daily Edition) — 2026-05-31
+// Pine Script v6 | System: Indicator 2 of 2 (pairs with Momentum Edge — Swing Engine)
+// ============================================================
+// Role:      Environment confirmation for the Engine's continuation triggers. NOT a
+//            trigger itself. Six ORTHOGONAL axes → one CONFIRM / CAUTION / AVOID verdict.
+// Axes:      (1) market/breadth regime  (2) relative-strength leadership
+//            (3) volatility regime (k-means) + squeeze  (4) base / extension
+//            (5) volume / accumulation  (6) forward-odds model (logistic, validated AUC 0.629, wired).
+// Edge:      Continuation trades have better expectancy when filtered by orthogonal
+//            context: leaders not laggards, risk-on not risk-off, fresh bases not
+//            extended runs, real participation. Axis 1 is also the survivorship shield
+//            — do not act on momentum signals when breadth is risk-off.
+// Repaint:   Benchmark/sector reads use lookahead_off + close[1]. k-means window is
+//            past-only. Axis-6 features use TRAILING-ONLY normalization identical to
+//            the offline training pipeline (train/serve parity). Panel reflects live
+//            (forming-bar) values like the Engine dashboard; alerts gate on confirmed bar.
+// ============================================================
+
+indicator(
+    title            = "Momentum Edge — Regime & Quality",
+    shorttitle       = "ME Regime",
+    overlay          = false,
+    max_labels_count = 50)
+
+// ============================================================
+// 1. INPUTS
+// ============================================================
+
+i_bench      = input.symbol("SPY", "Benchmark Symbol",                                group="Benchmark / Market")
+i_mktEmaLen  = input.int(50,    "Market Trend EMA",          minval=5,                group="Benchmark / Market")
+
+i_rsLen      = input.int(20,    "RS EMA Smoothing",          minval=1, maxval=60,     group="Relative Strength")
+i_rsLookback = input.int(5,     "RS Rising Lookback (bars)", minval=1, maxval=30,     group="Relative Strength")
+i_useSector  = input.bool(false,"Use Sector Proxy RS",                                group="Relative Strength")
+i_sector     = input.symbol("XLK", "Sector Proxy Symbol",                             group="Relative Strength")
+
+i_atrLen     = input.int(14,    "ATR Length",                minval=1,                group="Volatility Regime (k-means)")
+i_kmTrain    = input.int(100,   "k-means Training Window",   minval=20, maxval=300,   group="Volatility Regime (k-means)")
+i_kmIters    = input.int(8,     "k-means Iterations",        minval=1,  maxval=25,    group="Volatility Regime (k-means)")
+i_bbLen      = input.int(20,    "Squeeze BB/KC Length",      minval=5,                group="Volatility Regime (k-means)")
+i_bbStd      = input.float(2.0, "Squeeze BB Std Dev",        minval=0.5, step=0.1,    group="Volatility Regime (k-means)")
+i_kcMult     = input.float(1.5, "Squeeze KC ATR Mult",       minval=0.5, step=0.1,    group="Volatility Regime (k-means)")
+
+i_emaMid     = input.int(21,    "Anchor EMA (extension)",    minval=1,                group="Base / Extension")
+i_baseExtMax = input.float(3.0, "Max Extension (ATR)",       minval=0.5, step=0.5,    group="Base / Extension")
+
+i_obvLen     = input.int(20,    "OBV EMA Length",            minval=1,                group="Volume")
+
+i_useMl      = input.bool(true, "Enable Axis 6 (Forward-Odds Model)",                 group="Forward-Odds Model (axis 6)")
+i_mlThr      = input.float(0.50,"Min Odds-Score for CONFIRM", minval=0.0, maxval=1.0, step=0.01, group="Forward-Odds Model (axis 6)")
+
+i_showDash   = input.bool(true, "Show Verdict Panel",                                 group="Display")
+
+// ============================================================
+// 2. CORE CALCULATIONS
+// ============================================================
+
+atrVal = ta.atr(i_atrLen)
+atrPct = close > 0.0 ? atrVal / close * 100.0 : 0.0
+// k-means clusters atrPct[1..i_kmTrain] (variable offset). ATR% keeps the regime label
+// scale-invariant over the window. Buffer comfortably above the max training window.
+max_bars_back(atrPct, 350)
+
+// ── Axis 1: Market / breadth regime ──────────────────────────
+benchClose = request.security(i_bench, timeframe.period, close[1],                      lookahead=barmerge.lookahead_off)
+benchEma   = request.security(i_bench, timeframe.period, ta.ema(close, i_mktEmaLen)[1], lookahead=barmerge.lookahead_off)
+mktRiskOn  = not na(benchClose) and not na(benchEma) and benchClose > benchEma
+
+// ── Axis 2: Relative strength leadership ─────────────────────
+rsRatio   = benchClose > 0.0 ? (close / benchClose) * 100.0 : na
+rsEma     = ta.ema(rsRatio, i_rsLen)
+rsLeading = rsEma > rsEma[1] or rsEma > rsEma[i_rsLookback]
+
+secClose   = i_useSector ? request.security(i_sector, timeframe.period, close[1], lookahead=barmerge.lookahead_off) : na
+secRatio   = i_useSector and not na(secClose) and secClose > 0.0 ? (close / secClose) * 100.0 : na
+secEma     = i_useSector ? ta.ema(secRatio, i_rsLen) : na
+secLeading = not i_useSector or na(secEma) or secEma > secEma[i_rsLookback]
+rsBoth     = rsLeading and secLeading
+
+// ── Axis 3: Volatility regime (k-means) + squeeze ────────────
+f_kmeansVol(float src, int trainLen, int iters) =>
+    array<float> data = array.new<float>()
+    for i = 1 to trainLen
+        v = src[i]
+        if not na(v)
+            array.push(data, v)
+    int n = array.size(data)
+    float cLow  = na
+    float cMid  = na
+    float cHigh = na
+    if n >= 3
+        cLow  := array.min(data)
+        cHigh := array.max(data)
+        cMid  := array.avg(data)
+        for _it = 0 to iters - 1
+            float sLow  = 0.0
+            float sMid  = 0.0
+            float sHigh = 0.0
+            int   nLow  = 0
+            int   nMid  = 0
+            int   nHigh = 0
+            for j = 0 to n - 1
+                float vj = array.get(data, j)
+                float dL = math.abs(vj - cLow)
+                float dM = math.abs(vj - cMid)
+                float dH = math.abs(vj - cHigh)
+                if dL <= dM and dL <= dH
+                    sLow  += vj
+                    nLow  += 1
+                else if dM <= dH
+                    sMid  += vj
+                    nMid  += 1
+                else
+                    sHigh += vj
+                    nHigh += 1
+            cLow  := nLow  > 0 ? sLow  / nLow  : cLow
+            cMid  := nMid  > 0 ? sMid  / nMid  : cMid
+            cHigh := nHigh > 0 ? sHigh / nHigh : cHigh
+    [cLow, cMid, cHigh]
+
+[cLow, cMid, cHigh] = f_kmeansVol(atrPct, i_kmTrain, i_kmIters)
+kmReady = not na(cLow) and not na(cHigh) and cHigh > cLow
+distL = math.abs(atrPct - cLow)
+distM = math.abs(atrPct - cMid)
+distH = math.abs(atrPct - cHigh)
+volCluster   = not kmReady ? 1 : (distL <= distM and distL <= distH ? 0 : (distM <= distH ? 1 : 2))
+volRegimeStr = volCluster == 0 ? "Low" : volCluster == 1 ? "Mid" : "High"
+
+[bbMid, bbUpper, bbLower] = ta.bb(close, i_bbLen, i_bbStd)
+kcMid    = ta.ema(close, i_bbLen)
+kcRange  = ta.atr(i_bbLen) * i_kcMult
+squeezeOn = bbLower > (kcMid - kcRange) and bbUpper < (kcMid + kcRange)
+volSupport = volCluster <= 1 or squeezeOn   // contraction-friendly regime
+
+// ── Axis 4: Base / extension ─────────────────────────────────
+emaMid = ta.ema(close, i_emaMid)
+extAtr = atrVal > 0.0 ? (close - emaMid) / atrVal : 0.0
+inBase = extAtr <= i_baseExtMax
+
+// ── Axis 5: Volume / accumulation (OBV trend) ────────────────
+obvRaw  = ta.obv
+obvEma  = ta.ema(obvRaw, i_obvLen)
+accum   = obvRaw > obvEma
+
+// ── Axis 6: Forward-odds model (VALIDATED 2026-05-31) ────────
+// Logistic model from scripts/train_fragments.py. Walk-forward AUC 0.629 ± 0.037
+// (5 forward folds, 60-bar embargo). Label: +25% before -10% within 60 bars.
+// Features use FROZEN training constants (ATR14, EMA20/50, BB20/2, KC20/1.5, fixed
+// lookbacks) — NOT the display inputs above — for exact train/serve parity. Same-bar
+// benchmark close is legitimate on a confirmed daily bar and matches training.
+// CAVEAT: top features (below_52w_high, rs_excess20) lean on a volatility / relative-
+// strength effect and are survivorship-exposed; treat the probability as a relative
+// rank, gated by axis 1. It can only WITHHOLD a CONFIRM, never force an AVOID.
+mlAtr     = ta.atr(14)
+mlAtrSafe = mlAtr != 0.0 ? mlAtr : na
+mlEma20   = ta.ema(close, 20)
+mlEma50   = ta.ema(close, 50)
+mlAtrPct  = close > 0.0 ? mlAtr / close * 100.0 : na
+benchLive = request.security(i_bench, timeframe.period, close, lookahead=barmerge.lookahead_off)
+
+mf0  = (close - close[5])  / mlAtrSafe
+mf1  = (close - close[10]) / mlAtrSafe
+mf2  = (close - close[20]) / mlAtrSafe
+mf3  = (close - close[60]) / mlAtrSafe
+mf4  = (close - mlEma20) / mlAtrSafe
+mf5  = (close - mlEma50) / mlAtrSafe
+mf6  = (mlEma20 - mlEma20[20]) / mlAtrSafe
+mlHH60 = ta.highest(high, 60)
+mlLL60 = ta.lowest(low, 60)
+mf7  = (mlHH60 - mlLL60) != 0.0 ? (close - mlLL60) / (mlHH60 - mlLL60) : 0.5   // neutral on zero range
+mlAtrPctStd = ta.stdev(mlAtrPct, 100)
+mf8  = mlAtrPctStd != 0.0 ? (mlAtrPct - ta.sma(mlAtrPct, 100)) / mlAtrPctStd : na
+mf9  = ta.rsi(close, 14) / 100.0
+[mlDiP, mlDiM, mlAdx] = ta.dmi(14, 14)
+mf10 = mlAdx / 100.0
+mlVolSma = ta.sma(volume, 20)
+mf11 = mlVolSma != 0.0 ? volume / mlVolSma : 1.0   // neutral on zero-volume bar
+mlUpVol  = math.sum(close > close[1] ? volume : 0.0, 20)
+mlTotVol = math.sum(volume, 20)
+mf12 = mlTotVol != 0.0 ? mlUpVol / mlTotVol : na
+mf13 = (close / close[20] - 1.0) - (benchLive / benchLive[20] - 1.0)
+mlHH252 = ta.highest(high, 252)
+mf14 = mlHH252 != 0.0 ? close / mlHH252 - 1.0 : na
+[mlBbMid, mlBbU, mlBbL] = ta.bb(close, 20, 2.0)
+mlKcMid = ta.ema(close, 20)
+mlKcRng = ta.atr(20) * 1.5
+mf15 = (mlBbL > mlKcMid - mlKcRng and mlBbU < mlKcMid + mlKcRng) ? 1.0 : 0.0
+
+// Effective weights (StandardScaler absorbed) — train_fragments.py, 861445 fragments
+const float MEZ_W0  = +0.038264   // mom_5
+const float MEZ_W1  = -0.014308   // mom_10
+const float MEZ_W2  = -0.044850   // mom_20
+const float MEZ_W3  = -0.060044   // mom_60
+const float MEZ_W4  = -0.618688   // dist_ema20
+const float MEZ_W5  = +0.758342   // dist_ema50
+const float MEZ_W6  = -0.175612   // ema_slope20
+const float MEZ_W7  = -0.349656   // range_pos60
+const float MEZ_W8  = +0.137563   // atr_z
+const float MEZ_W9  = -0.932291   // rsi14
+const float MEZ_W10 = -0.436204   // adx14
+const float MEZ_W11 = -0.051771   // vol_ratio
+const float MEZ_W12 = -0.188333   // up_vol_ratio
+const float MEZ_W13 = +3.170288   // rs_excess20
+const float MEZ_W14 = -4.725967   // below_52w_high
+const float MEZ_W15 = -0.025940   // squeeze
+const float MEZ_BIAS = -0.028780
+
+mlFeatReady = not na(mf0) and not na(mf3) and not na(mf8) and not na(mf13) and not na(mf14)
+mlRaw = MEZ_BIAS +
+     MEZ_W0*mf0 + MEZ_W1*mf1 + MEZ_W2*mf2  + MEZ_W3*mf3  + MEZ_W4*mf4  + MEZ_W5*mf5 +
+     MEZ_W6*mf6 + MEZ_W7*mf7 + MEZ_W8*mf8  + MEZ_W9*mf9  + MEZ_W10*mf10 + MEZ_W11*mf11 +
+     MEZ_W12*mf12 + MEZ_W13*mf13 + MEZ_W14*mf14 + MEZ_W15*mf15
+mlProbCalc = 1.0 / (1.0 + math.exp(-mlRaw))
+mlProb = i_useMl and mlFeatReady ? mlProbCalc : na
+
+// ============================================================
+// 3. COMPOSITE QUALITY SCORE + VERDICT
+// ============================================================
+
+q = 0
+q += mktRiskOn       ? 25 : 0
+q += rsBoth          ? 25 : 0
+q += inBase          ? 20 : 0
+q += accum           ? 15 : 0
+q += volSupport      ? 15 : 0
+qualityScore = q   // 0–100 from the 5 on-chart axes
+
+avoidCond   = (not mktRiskOn) or (not rsLeading) or (not inBase)
+mlOk        = (not i_useMl) or na(mlProb) or mlProb >= i_mlThr
+confirmCond = mktRiskOn and rsBoth and inBase and accum and volSupport and mlOk and not avoidCond
+verdict     = avoidCond ? "AVOID" : confirmCond ? "CONFIRM" : "CAUTION"
+verdictCol  = avoidCond ? color.new(#F6465D, 0) : confirmCond ? color.new(#0ECB81, 0) : color.new(#F0B90B, 0)
+
+// ============================================================
+// 4. PANE PLOTS
+// ============================================================
+
+plot(qualityScore, "Quality Score",
+    color=color.new(verdictCol, 35), style=plot.style_area, linewidth=1)
+// Odds-Score = balanced-model logistic output ×100 (a relative favorability rank,
+// NOT a calibrated probability; score ≥ 50 ≈ 1.7× the base-rate hit on +25% moves).
+plot(not na(mlProb) ? mlProb * 100.0 : na, "Fwd-Odds Score",
+    color=color.new(#A78BFA, 0), linewidth=2)
+hline(50, "Midline", color=color.new(#30363D, 0), linestyle=hline.style_dashed)
+hline(75, "Strong",  color=color.new(#0ECB81, 60), linestyle=hline.style_dotted)
+
+// ============================================================
+// 5. VERDICT PANEL (dark, compact)
+// ============================================================
+
+var color C_BG   = color.new(#0F111A,  6)
+var color C_LBL  = color.new(#161C2D,  0)
+var color C_NEUT = color.new(#1E2537,  0)
+var color C_BULL = color.new(#0ECB81, 12)
+var color C_BEAR = color.new(#F6465D, 12)
+var color C_WARN = color.new(#F0B90B, 12)
+var color TC_DIM = color.new(#94A3B8,  0)
+
+var table panel = table.new(
+    position.top_right, 2, 8,
+    bgcolor      = C_BG,
+    frame_color  = color.new(#30363D, 0),
+    frame_width  = 1,
+    border_color = color.new(#1E2537, 0),
+    border_width = 1)
+
+f_axis(int r, string lbl, string val, bool ok, bool warn) =>
+    table.cell(panel, 0, r, lbl, bgcolor=C_LBL, text_color=TC_DIM, text_size=size.small, text_halign=text.align_left)
+    table.cell(panel, 1, r, val, bgcolor=ok ? C_BULL : warn ? C_WARN : C_BEAR,
+        text_color=color.white, text_size=size.small, text_halign=text.align_center)
+
+if barstate.islast and i_showDash
+    table.cell(panel, 0, 0, "Regime & Quality", bgcolor=color.new(#1A2035, 0),
+        text_color=color.white, text_size=size.small, text_halign=text.align_left)
+    table.cell(panel, 1, 0, verdict, bgcolor=verdictCol,
+        text_color=color.white, text_size=size.normal, text_halign=text.align_center)
+
+    f_axis(1, "Market (" + i_bench + ")", mktRiskOn ? "Risk-On" : "Risk-Off", mktRiskOn, false)
+    f_axis(2, "Rel Strength", rsBoth ? "Leading" : rsLeading ? "Stock only" : "Lagging", rsBoth, rsLeading and not rsBoth)
+    f_axis(3, "Vol Regime", volRegimeStr + (squeezeOn ? " ⊟" : ""), volSupport, false)
+    f_axis(4, "Base/Ext", str.tostring(math.round(extAtr, 1)) + " ATR", inBase, false)
+    f_axis(5, "Accumulation", accum ? "OBV ↑" : "OBV ↓", accum, false)
+
+    mlVal = not i_useMl ? "off" : na(mlProb) ? "n/a" : str.tostring(math.round(mlProb * 100.0, 0))
+    mlOkRow = not i_useMl or na(mlProb) ? false : mlProb >= i_mlThr
+    table.cell(panel, 0, 6, "Odds Score", bgcolor=C_LBL, text_color=TC_DIM, text_size=size.small, text_halign=text.align_left)
+    table.cell(panel, 1, 6, mlVal, bgcolor=not i_useMl or na(mlProb) ? C_NEUT : mlOkRow ? C_BULL : C_WARN,
+        text_color=color.white, text_size=size.small, text_halign=text.align_center)
+
+    table.cell(panel, 0, 7, "Quality", bgcolor=C_LBL, text_color=TC_DIM, text_size=size.small, text_halign=text.align_left)
+    table.cell(panel, 1, 7, str.tostring(qualityScore) + " / 100",
+        bgcolor=qualityScore >= 75 ? C_BULL : qualityScore >= 50 ? C_WARN : C_NEUT,
+        text_color=color.white, text_size=size.small, text_halign=text.align_center)
+
+// ============================================================
+// 6. ALERTS
+// ============================================================
+
+alertcondition(barstate.isconfirmed and confirmCond and not confirmCond[1],
+    title="Regime CONFIRM", message="Momentum Edge: regime CONFIRM on {{ticker}} {{interval}}")
+alertcondition(barstate.isconfirmed and avoidCond and not avoidCond[1],
+    title="Regime AVOID", message="Momentum Edge: regime turned AVOID on {{ticker}} {{interval}}")
+
+// ============================================================
+// END — Momentum Edge — Regime & Quality
+// ============================================================
