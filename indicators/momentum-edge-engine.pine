@@ -1,19 +1,22 @@
 //@version=6
 // ============================================================
-// Momentum Edge — Swing Engine (Daily Edition) — 2026-05-31
+// Momentum Edge — Swing Engine (Daily Edition) — 2026-07-11
 // Pine Script v6 | System: Indicator 1 of 2 (pairs with Momentum Edge — Regime & Quality)
 // ============================================================
 // Regime:    US equities daily. Established uptrends releasing from a volatility
 //            contraction to new highs (Mode A), or pulling back to a rising MA and
-//            resuming (Mode B). Long-only. Hunts STRENGTH, not exhaustion.
-//            Breaks in: choppy/range tape, bear markets, illiquid names, sub-daily TFs.
+//            resuming (Mode B). Long-only. Hunts STRENGTH, not exhaustion. Bear tape
+//            is blocked by the benchmark risk-on gate (i_useMktGate, default on).
+//            Breaks in: choppy/range tape, illiquid names, sub-daily TFs.
 // Edge:      Momentum continuation (behavioral underreaction) + volatility
 //            contraction→expansion (structural) + RS leadership (cross-sectional
 //            momentum) + supply-overhang clearance on a volume-backed breakout.
 // Failure:   Earnings/news gaps past the trail. Failed breakouts in chop. Extended
 //            entries (capped). Late-stage blow-offs (trail handles exit, not entry).
-// Repaint:   Breakout uses ta.highest(high,N)[1] (prior high). Benchmark read uses
-//            lookahead_off + close[1]. k-means window is past-only (atr%[1..trainLen]).
+//            Benchmark-EMA whipsaw / late re-entry from the risk-on gate.
+// Repaint:   Breakout uses ta.highest(high,N)[1] (prior high). Benchmark reads (RS +
+//            market gate) use lookahead_off + [1]-confirmed values. k-means window is
+//            past-only (atr%[1..trainLen]).
 //            All signals + trail ratchet gate on barstate.isconfirmed.
 // AI:        3-cluster k-means on ATR% adapts the trailing-stop width + labels the
 //            current volatility regime. No future leakage; centroids from past window.
@@ -57,6 +60,9 @@ i_rsLen       = input.int(20,    "RS EMA Smoothing",          minval=1, maxval=6
 i_rsLookback  = input.int(5,     "RS Rising Lookback (bars)", minval=1, maxval=30,     group="Relative Strength")
 i_useRsGate   = input.bool(true, "Require RS Leading Benchmark",                       group="Relative Strength")
 
+i_useMktGate  = input.bool(true, "Require Benchmark Uptrend (Risk-On)",                group="Market Regime")
+i_mktEmaLen   = input.int(50,    "Benchmark Trend EMA",       minval=5,                group="Market Regime")
+
 i_volMaLen    = input.int(20,    "Volume MA Length",          minval=1,                group="Volume")
 i_volMult     = input.float(1.3, "Volume Surge (>x MA)",      minval=1.0, step=0.1,    group="Volume")
 
@@ -70,8 +76,8 @@ i_useTimeStop = input.bool(false,"Enable Time Stop",                            
 i_maxHold     = input.int(60,    "Time Stop (bars, if pre-TP1)", minval=5,             group="Risk / Exit")
 
 i_cooldown    = input.int(5,     "Cooldown (bars)",           minval=1, maxval=60,     group="Signal")
-i_commPct     = input.float(0.05,"Commission % per side",     minval=0.0, step=0.01,   group="Signal")
-i_slipPct     = input.float(0.05,"Slippage % per side",       minval=0.0, step=0.01,   group="Signal")
+i_commPct     = input.float(0.05,"Commission % per side",     minval=0.0, step=0.01,   group="Journal Costs")
+i_slipPct     = input.float(0.05,"Slippage % per side",       minval=0.0, step=0.01,   group="Journal Costs")
 
 i_showDash    = input.bool(true, "Show Dashboard",                                     group="Display")
 i_showLines   = input.bool(true, "Show Entry/Stop/TP Lines",                           group="Display")
@@ -91,10 +97,6 @@ atrPct  = close > 0.0 ? (atrVal / close) * 100.0 : 0.0
 // centroids. Reserve a history buffer comfortably above the max training window.
 max_bars_back(atrPct, 350)
 
-plot(i_showLines ? emaFast : na, "EMA Fast", color=color.new(#2196F3, 30), linewidth=1)
-plot(i_showLines ? emaMid  : na, "EMA Mid",  color=color.new(#FF6D00, 30), linewidth=1)
-plot(i_showLines ? emaBase : na, "EMA Base", color=color.new(#FDD835, 10), linewidth=2)
-
 // ── Trend filter (uptrend intact; fast-EMA dip allowed) ──────
 uptrend = close > emaBase and emaMid > emaBase
 
@@ -104,9 +106,13 @@ rsRatio    = benchClose > 0.0 ? (close / benchClose) * 100.0 : na
 rsEma      = ta.ema(rsRatio, i_rsLen)
 rsLeading  = rsEma > rsEma[1] or rsEma > rsEma[i_rsLookback]
 
+// ── Market regime gate (benchmark above its own trend EMA) ───
+// Mirrors Regime & Quality axis 1 — if either side changes, mirror the other.
+benchEma  = request.security(i_bench, timeframe.period, ta.ema(close, i_mktEmaLen)[1], lookahead=barmerge.lookahead_off)
+mktRiskOn = not na(benchClose) and not na(benchEma) and benchClose > benchEma
+
 // ── Volume participation ─────────────────────────────────────
 volMa    = ta.sma(volume, i_volMaLen)
-rvol     = volMa > 0.0 ? volume / volMa : 1.0
 volSurge = volume > volMa * i_volMult
 
 // ── Extension cap (don't chase) ──────────────────────────────
@@ -198,7 +204,7 @@ reclaim       = close > high[1] and close > emaFast
 pullbackTrig  = emaMidRising and nearMidRecent and strongBull and reclaim
 
 // ── Combined raw trigger ─────────────────────────────────────
-baseOk  = uptrend and (not i_useRsGate or rsLeading) and volSurge and notExtended
+baseOk  = uptrend and (not i_useMktGate or mktRiskOn) and (not i_useRsGate or rsLeading) and volSurge and notExtended
 rawLong = baseOk and ((i_useBreakout and breakoutTrig) or (i_usePullback and pullbackTrig))
 
 // ============================================================
@@ -286,8 +292,12 @@ if sigExit
     tp1Filled  := false
 
 // ============================================================
-// 6. PLOTS — signals & trade levels
+// 6. PLOTS — EMAs, signals & trade levels
 // ============================================================
+
+plot(i_showLines ? emaFast : na, "EMA Fast", color=color.new(#2196F3, 30), linewidth=1)
+plot(i_showLines ? emaMid  : na, "EMA Mid",  color=color.new(#FF6D00, 30), linewidth=1)
+plot(i_showLines ? emaBase : na, "EMA Base", color=color.new(#FDD835, 10), linewidth=2)
 
 if sigEntry
     label.new(
@@ -298,7 +308,7 @@ if sigEntry
         color     = color.new(#00C853, 5),
         textcolor = color.white,
         size      = size.normal,
-        tooltip   = (breakoutTrig ? "Breakout" : "Pullback") + "  |  ATR " + str.tostring(math.round(atrPct, 2)) + "%  |  Vol " + volRegimeStr)
+        tooltip   = (breakoutTrig and pullbackTrig ? "Breakout+Pullback" : breakoutTrig ? "Breakout" : "Pullback") + "  |  ATR " + str.tostring(math.round(atrPct, 2)) + "%  |  Vol " + volRegimeStr)
 
 plotshape(sigTp1, title="TP1 Hit",
     style=shape.triangledown, location=location.abovebar,
@@ -332,7 +342,7 @@ var color C_SEP  = color.new(#2D3748,  0)
 var color TC_DIM = color.new(#94A3B8,  0)
 
 var table dash = table.new(
-    position.bottom_right, 2, 15,
+    position.bottom_right, 2, 16,
     bgcolor      = C_BG,
     frame_color  = color.new(#30363D, 0),
     frame_width  = 1,
@@ -350,7 +360,8 @@ if barstate.islast and i_showDash
     pf      = grossLoss > 0.0 ? grossWin / grossLoss : na
     expR    = nTrades > 0 ? sumRet / nTrades : 0.0
     totRet  = equity - 100.0
-    openPnl = inPosition and not na(entryPrice) and entryPrice > 0.0 ? (close - entryPrice) / entryPrice * 100.0 : 0.0
+    entryBasis = entryPrice * (1.0 + commission + slippage)   // costed basis — keeps the open mark honest vs closed stats
+    openPnl    = inPosition and not na(entryPrice) and entryPrice > 0.0 ? (close - entryBasis) / entryBasis * 100.0 : 0.0
 
     // Header
     table.cell(dash, 0, 0, "Momentum Edge", bgcolor=C_HDR, text_color=color.white, text_size=size.small, text_halign=text.align_left)
@@ -360,22 +371,23 @@ if barstate.islast and i_showDash
     // Live state
     f_row(1, "Open P&L", inPosition ? (openPnl >= 0.0 ? "+" : "") + str.tostring(math.round(openPnl, 2)) + "%" : "—",
         inPosition ? (openPnl >= 0.0 ? C_BULL : C_BEAR) : C_NEUT)
-    f_row(2, "Trend", uptrend ? "↑ Up" : "↓ Down", uptrend ? C_BULL : C_BEAR)
-    f_row(3, "RS vs " + i_bench, rsLeading ? "Leading" : "Lagging", rsLeading ? C_BULL : C_BEAR)
-    f_row(4, "Vol Regime", volRegimeStr, volCluster == 2 ? C_WARN : C_NEUT)
-    f_row(5, "Squeeze", squeezeOn ? "● ON" : recentlySqueezed ? "released" : "—", squeezeOn ? C_WARN : recentlySqueezed ? color.new(#0ECB81, 35) : C_NEUT)
-    f_row(6, "Ext (ATR)", str.tostring(math.round(extAtr, 1)) + (notExtended ? "" : " ✗"), notExtended ? C_NEUT : C_BEAR)
+    f_row(2, "Market (" + i_bench + ")", mktRiskOn ? "Risk-On" : "Risk-Off", mktRiskOn ? C_BULL : C_BEAR)
+    f_row(3, "Trend", uptrend ? "↑ Up" : "↓ Down", uptrend ? C_BULL : C_BEAR)
+    f_row(4, "RS vs " + i_bench, rsLeading ? "Leading" : "Lagging", rsLeading ? C_BULL : C_BEAR)
+    f_row(5, "Vol Regime", volRegimeStr, volCluster == 2 ? C_WARN : C_NEUT)
+    f_row(6, "Squeeze", squeezeOn ? "● ON" : recentlySqueezed ? "released" : "—", squeezeOn ? C_WARN : recentlySqueezed ? color.new(#0ECB81, 35) : C_NEUT)
+    f_row(7, "Ext (ATR)", str.tostring(math.round(extAtr, 1)) + (notExtended ? "" : " ✗"), notExtended ? C_NEUT : C_BEAR)
 
-    table.cell(dash, 0, 7, "", bgcolor=C_SEP, text_size=size.tiny)
-    table.cell(dash, 1, 7, "JOURNAL", bgcolor=C_SEP, text_color=TC_DIM, text_size=size.tiny, text_halign=text.align_center)
+    table.cell(dash, 0, 8, "", bgcolor=C_SEP, text_size=size.tiny)
+    table.cell(dash, 1, 8, "JOURNAL", bgcolor=C_SEP, text_color=TC_DIM, text_size=size.tiny, text_halign=text.align_center)
 
-    f_row(8,  "Trades", str.tostring(nTrades), C_NEUT)
-    f_row(9,  "Win %", nTrades > 0 ? str.tostring(math.round(winRate, 1)) + "%" : "—", winRate >= 50.0 ? C_BULL : nTrades > 0 ? C_WARN : C_NEUT)
-    f_row(10, "Profit Factor", na(pf) ? "—" : str.tostring(math.round(pf, 2)), na(pf) ? C_NEUT : pf >= 1.5 ? C_BULL : pf >= 1.0 ? C_WARN : C_BEAR)
-    f_row(11, "Avg W / L", nTrades > 0 ? "+" + str.tostring(math.round(avgWin, 1)) + " / " + str.tostring(math.round(-avgLoss, 1)) : "—", C_NEUT)
-    f_row(12, "Expectancy", nTrades > 0 ? (expR >= 0.0 ? "+" : "") + str.tostring(math.round(expR, 2)) + "%" : "—", expR >= 0.0 ? C_BULL : C_BEAR)
-    f_row(13, "Total Return", (totRet >= 0.0 ? "+" : "") + str.tostring(math.round(totRet, 1)) + "%", totRet >= 0.0 ? C_BULL : C_BEAR)
-    f_row(14, "Max DD", "-" + str.tostring(math.round(maxDD, 1)) + "%", maxDD <= 20.0 ? C_NEUT : C_BEAR)
+    f_row(9,  "Trades", str.tostring(nTrades), C_NEUT)
+    f_row(10, "Win %", nTrades > 0 ? str.tostring(math.round(winRate, 1)) + "%" : "—", winRate >= 50.0 ? C_BULL : nTrades > 0 ? C_WARN : C_NEUT)
+    f_row(11, "Profit Factor", na(pf) ? "—" : str.tostring(math.round(pf, 2)), na(pf) ? C_NEUT : pf >= 1.5 ? C_BULL : pf >= 1.0 ? C_WARN : C_BEAR)
+    f_row(12, "Avg W / L", nTrades > 0 ? "+" + str.tostring(math.round(avgWin, 1)) + " / " + str.tostring(math.round(-avgLoss, 1)) : "—", C_NEUT)
+    f_row(13, "Expectancy", nTrades > 0 ? (expR >= 0.0 ? "+" : "") + str.tostring(math.round(expR, 2)) + "%" : "—", expR >= 0.0 ? C_BULL : C_BEAR)
+    f_row(14, "Total Return", (totRet >= 0.0 ? "+" : "") + str.tostring(math.round(totRet, 1)) + "%", totRet >= 0.0 ? C_BULL : C_BEAR)
+    f_row(15, "Max DD", "-" + str.tostring(math.round(maxDD, 1)) + "%", maxDD <= 20.0 ? C_NEUT : C_BEAR)
 
 // ============================================================
 // 8. ALERTS

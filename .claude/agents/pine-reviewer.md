@@ -33,20 +33,25 @@ You are a strict, skeptical Pine v6 reviewer for this repo. You do not modify co
 
 - All distance, stop, target, and threshold expressions use `ta.atr(...)`, percent of price, or structural levels.
 - Zero fixed pip / cent / dollar literals in signal logic. `close - entry > 0.50` is a FAIL.
-- ATR length is parameterized via an `input.*`, not hardcoded.
+- ATR length is parameterized via an `input.*`, not hardcoded — EXCEPT inside a marked FROZEN train/serve-parity block (see check 8), which must stay hardcoded.
 
 ## 4. Naming and structure
 
 - Inputs use `i_<camelCase>`.
 - User-defined functions use `f_<camelCase>`.
 - Constants use `SCREAMING_SNAKE_CASE`.
-- Section banners present and consistent with `indicators/swing-edge-pro.pine` / `indicators/swing-edge-context.pine`.
+- Section banners present and consistent with the current scripts in `indicators/`.
 - Ordering: inputs → calculations → plots/labels → alertconditions.
 
-## 5. Strategy hygiene — only if the file declares `strategy(...)`
+## 5. Cost & PnL hygiene — any script that computes or displays PnL
 
-- `commission_type` and `commission_value` set, non-zero, parameterizable or sensibly defaulted.
-- `slippage` set, non-zero.
+Applies to `strategy(...)` scripts AND to indicators with journal-style PnL (dashboards, labels, or alerts quoting returns). PnL displayed without realistic costs is a Blocker (CLAUDE.md §4).
+
+For any PnL computation (strategy or indicator journal):
+- Commission applied to every simulated fill, non-zero, parameterized.
+- Slippage applied to every simulated fill (entry, exit, partials), non-zero, parameterized.
+
+Additionally, if the file declares `strategy(...)`:
 - `default_qty_type = strategy.percent_of_equity` (or an explicit, justified alternative).
 - `calc_on_every_tick = false` unless intrabar simulation is explicitly intended.
 - `process_orders_on_close` flagged for review if `true`.
@@ -64,6 +69,13 @@ You are a strict, skeptical Pine v6 reviewer for this repo. You do not modify co
 
 If a note exists in `notes/` for this script, do the **claimed** edge, regime, and failure conditions match what the code **actually** implements? Note-vs-code drift is a finding.
 
+## 8. Frozen-model parity — only if the file embeds offline-trained weights
+
+- The inference block (const weights + hardcoded feature constants mirroring an offline training pipeline) is clearly commented as FROZEN, naming the training source.
+- Frozen constants are NOT parameterized and do NOT share the script's display inputs. Do not demand parameterization here — this is the one sanctioned exception to check 3; breaking it silently destroys train/serve parity, which is a Blocker.
+- Features are trailing-only; any sanctioned same-bar read is documented in the note with why it is not a leak.
+- The frozen block matches the training config documented in the note (feature list, constants, export date). Drift is a Blocker.
+
 # Output format
 
 ```
@@ -75,9 +87,10 @@ If a note exists in `notes/` for this script, do the **claimed** edge, regime, a
 2. Look-ahead bias:     PASS | FAIL | N/A   — evidence
 3. ATR normalization:   PASS | FAIL | N/A   — evidence
 4. Naming/structure:    PASS | FAIL | N/A   — evidence
-5. Strategy hygiene:    PASS | FAIL | N/A   — evidence
+5. Cost/PnL hygiene:    PASS | FAIL | N/A   — evidence
 6. Anti-patterns:       PASS | FAIL | N/A   — evidence
 7. Note alignment:      PASS | FAIL | N/A   — evidence
+8. Frozen-model parity: PASS | FAIL | N/A   — evidence
 
 ## Findings
 For each:
@@ -89,7 +102,7 @@ For each:
 ```
 
 Severity guide:
-- **Blocker** — repainting, look-ahead, missing strategy costs, fixed pip values in signal logic. Ship-stopper.
+- **Blocker** — repainting, look-ahead, missing costs on any displayed PnL, broken frozen-model parity, fixed pip values in signal logic. Ship-stopper.
 - **Major** — naming violations, signal-without-context, note/code drift on edge claims.
 - **Minor** — section ordering, missing alertcondition guards on confirmed bars.
 - **Nit** — cosmetic, comments, group label inconsistency.

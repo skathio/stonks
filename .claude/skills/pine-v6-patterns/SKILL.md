@@ -157,7 +157,7 @@ i_atrMult = input.float(2.0, "ATR Stop Multiplier",       minval=0.1, step=0.1, 
 i_useRS   = input.bool(true, "Use Relative Strength Filter",                       group="Filters")
 ```
 
-Match the column alignment, capitalization, and group casing used in `indicators/swing-edge-pro.pine` and `indicators/swing-edge-context.pine`. Visual consistency is part of code quality here — these scripts live side by side in the TradingView editor.
+Match the column alignment, capitalization, and group casing used by the current scripts in `indicators/`. Visual consistency is part of code quality here — these scripts live side by side in the TradingView editor.
 
 ---
 
@@ -186,3 +186,49 @@ weeklyHigh = f_secureHtf(syminfo.tickerid, "W", high)
 ```
 
 One place to enforce the rule, applied everywhere.
+
+---
+
+## 11. Variable-offset history reads need `max_bars_back`
+
+When a loop or function reads a series with a runtime-variable offset (`src[i]` where the range comes from an input), Pine cannot infer the buffer size — deep history reads will error or silently truncate. Reserve the buffer explicitly, sized to the input's **maxval** with headroom:
+
+```pine
+i_trainLen = input.int(100, "Training Window", minval=20, maxval=300)
+atrPct = ta.atr(14) / close * 100.0
+max_bars_back(atrPct, 350)   // ≥ the input's maxval, with headroom — NOT the default
+
+f_windowStat(float src, int len) =>
+    float acc = 0.0
+    for i = 1 to len
+        acc += nz(src[i])
+    acc / len
+```
+
+Rules:
+- Buffer ≥ the length input's `maxval`, not its default.
+- Start the window at `[1]`, not `[0]`, if the statistic must be past-only (no forming-bar leak).
+
+---
+
+## 12. Frozen offline-model inference (train/serve parity)
+
+When porting an offline-trained model (logistic weights, centroids) into Pine:
+
+```pine
+// Features use FROZEN training constants — NOT the display inputs — for exact
+// train/serve parity with <training script>. DO NOT parameterize or "deduplicate"
+// these with the script's inputs; changing any constant silently breaks parity.
+mlAtr   = ta.atr(14)          // FROZEN (training used ATR14)
+mlEma20 = ta.ema(close, 20)   // FROZEN
+
+const float W0   = +0.038264   // feature_name — exported YYYY-MM-DD, <source>
+const float BIAS = -0.028780
+score = 1.0 / (1.0 + math.exp(-(BIAS + W0 * f0 /* + ... */)))
+```
+
+Rules:
+- Weights are `const`, one per line, each commented with its feature name and export provenance.
+- Feature constants are hardcoded and marked FROZEN — the one sanctioned exception to "parameterize via `input.*`" (pine-reviewer checks 3 / 8).
+- All features trailing-only; document any sanctioned same-bar read in the note with why it is not a leak.
+- Record the validation (method, metric, date) in the private note; re-export weights only through the training pipeline, never hand-edit.

@@ -12,3 +12,7 @@ results/
 
 # Private Python training / backtesting pipeline
 scripts/
+
+# Local agent/session state — never commit
+.claude/audit.log
+.claude/somi-state/

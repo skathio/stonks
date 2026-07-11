@@ -19,7 +19,7 @@ The **Engine** answers *when to enter*. The **Regime & Quality** panel answers *
 
 ### Swing Engine (Indicator 1)
 
-Two continuation setups, both requiring an established uptrend + RS leadership + volume participation:
+Two continuation setups, both requiring a risk-on benchmark + an established uptrend + RS leadership + volume participation:
 
 - **Mode A — Breakout:** price clears the prior N-bar high after a volatility squeeze (BB inside KC).
 - **Mode B — Pullback:** price pulls back to a rising mid-EMA and reclaims with a strong body.

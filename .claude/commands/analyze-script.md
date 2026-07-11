@@ -51,6 +51,9 @@ Count free parameters that affect signal generation (input.* values used in entr
 - Parameters set "to match the chart" — i.e., they only make sense on the symbol the script was developed on.
 - Tunables that interact (changing one forces re-tuning of another).
 
+## 2f. Companion-doc fidelity
+Diff the public companion `indicators/<slug>.md` against the code: input list and defaults, signal/verdict logic, alert behavior, compatibility claims. Public-doc drift is a finding — it misleads users even when the code is right.
+
 # Step 3 — Comparative context
 
 If peer scripts exist in `indicators/`, briefly note:

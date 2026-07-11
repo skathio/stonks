@@ -51,7 +51,7 @@ Anything you intend to change about these, state explicitly with reason.
 
 Before writing Pine for any high-risk idiom (HTF data, pivots, ATR normalization, strategy hygiene, alertconditions), invoke the `pine-v6-patterns` skill. Copy patterns; don't improvise.
 
-Edit the target file **in place**. Do not rename. Do not add a file extension.
+Edit the target file **in place**. Do not rename.
 
 # Step 5 — Review
 
@@ -68,6 +68,8 @@ Append an entry to the script's note in `notes/` (creating one from `notes/TEMPL
 - If signal-logic: explicit before → after for the affected logic.
 
 A change without a decision-log entry is a change that will be forgotten and re-litigated.
+
+If the change is user-visible (inputs, defaults, signal/verdict behavior, alerts, dashboard), also update the public companion `indicators/<slug>.md` in the same pass (CLAUDE.md §6 two-tier rule). A companion that contradicts the code is a public-facing bug.
 
 ---
 
