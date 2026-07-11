@@ -15,15 +15,17 @@ This is **Indicator 2 of 2**. Run it under **Momentum Edge — Swing Engine** (w
 | Volatility regime | 3-cluster k-means on ATR (Low/Mid/High) + squeeze | Second moment, not first |
 | Base / extension | Distance from anchor EMA in ATR units | Position within the move |
 | Volume / accumulation | OBV trend | Participation, not price geometry |
-| Forward-odds *(optional)* | Offline-trained probability of a large up-move | Statistical odds, off by default |
+| Forward-odds *(optional)* | Offline-trained probability of a large up-move | Statistical odds, on by default (toggleable) |
 
-The pane plots a 0–100 **Quality Score** (composite of the on-chart axes), colored by verdict; the **Forward-Odds %** line is overlaid when axis 6 is enabled.
+The pane plots a 0–100 **Quality Score** (composite of the on-chart axes), colored by verdict; the **Odds-Score** line (0–100, not a calibrated probability) is overlaid when axis 6 is enabled.
 
 ## Verdict logic
 
 - **AVOID** — market risk-off, OR relative strength lagging, OR over-extended.
 - **CONFIRM** — risk-on **and** leading **and** in a fresh base **and** accumulating **and** a supportive volatility regime (**and** the forward-odds model passes, if enabled).
 - **CAUTION** — anything mixed; use discretion.
+
+The AVOID extension line (3 ATR) is deliberately stricter than the Engine's hard entry cap (4 ATR): Engine signals in the 3–4 ATR band are environment-vetoed here by design.
 
 ## Inputs
 
@@ -42,6 +44,8 @@ The pane plots a 0–100 **Quality Score** (composite of the on-chart axes), col
 **Enabled by default.** The model was trained using a walk-forward validated logistic classifier (AUC 0.629, 5 forward folds with a 60-bar embargo) labelled on whether price reached +25% before −10% within 60 days. Its weights are frozen inside the indicator; features are reproduced bar-for-bar in Pine using trailing-only data (no look-ahead).
 
 The displayed value is a **relative odds-score (0–100), not a calibrated probability** — a score ≥ 50 corresponds to roughly 1.7× the base-rate hit on +25% moves. It can only *withhold* a CONFIRM, never force an AVOID, and is gated by the market-regime axis. Toggle it off to compare against the 5-axis verdict.
+
+The model's benchmark feed is fixed to SPY (its training benchmark) regardless of the `Benchmark Symbol` input, which drives the market and relative-strength axes only. On charts with less than ~1 year of history the score shows `n/a` while its features warm up, and the verdict falls back to the five on-chart axes.
 
 ## Compatibility
 

@@ -51,7 +51,7 @@ Run all five stages in the response, explicitly:
 
 Before writing Pine, invoke the `pine-v6-patterns` skill if any of these apply to your design: HTF data, pivots, ATR normalization, strategy declaration, alertconditions, confirmed-bar signals. Copy the patterns; don't improvise on the high-risk idioms.
 
-Create `indicators/<slug>.pine`. Match the header / banner / group / alignment style of `indicators/swing-edge-pro.pine` and `indicators/swing-edge-context.pine`. After implementation, also create a slim public-facing `indicators/<slug>.md` (usage + inputs + compatibility, **no edge IP**). The deep research note in `notes/` (per Step 2) stays private.
+Create `indicators/<slug>.pine`. Match the header / banner / group / alignment style of the current scripts in `indicators/`. After implementation, also create a slim public-facing `indicators/<slug>.md` (usage + inputs + compatibility, **no edge IP**). The deep research note in `notes/` (per Step 2) stays private.
 
 # Step 5 — Review
 

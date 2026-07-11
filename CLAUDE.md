@@ -104,16 +104,20 @@ If the user asks for any of these, **flag the issue and propose the sound altern
 
 ```
 indicators/                       Pine v6 source (`.pine`) + public-facing companion docs (`.md`)
-  swing-edge-pro.pine
-  swing-edge-pro.md               High-level usage doc — public-safe, no edge IP.
-  swing-edge-context.pine
-  swing-edge-context.md
+  momentum-edge-engine.pine
+  momentum-edge-engine.md         High-level usage doc — public-safe, no edge IP.
+  momentum-edge-regime.pine
+  momentum-edge-regime.md
 notes/                            Private research notes — gitignored except TEMPLATE.md
   TEMPLATE.md                     Blank research-note template (tracked).
   <slug>.md                       Per-indicator deep notes (gitignored — local only).
+  archive/                        Notes of retired indicators (gitignored — local only).
+data/                             Historical OHLCV CSVs (gitignored — local only).
+scripts/                          Python training / backtest harness (gitignored — local only).
+results/                          Backtest & training output (gitignored — local only).
 CLAUDE.md                         This file.
 README.md                         Public-facing repo overview.
-.gitignore                        Keeps notes/ private except the template.
+.gitignore                        Keeps notes/, data/, scripts/, results/ private.
 ```
 
 **Two-tier documentation:**

@@ -158,7 +158,8 @@ mlAtrSafe = mlAtr != 0.0 ? mlAtr : na
 mlEma20   = ta.ema(close, 20)
 mlEma50   = ta.ema(close, 50)
 mlAtrPct  = close > 0.0 ? mlAtr / close * 100.0 : na
-benchLive = request.security(i_bench, timeframe.period, close, lookahead=barmerge.lookahead_off)
+const string MEZ_BENCH = "SPY"   // FROZEN — training benchmark (train_fragments.py loads SPY.csv); do NOT tie to i_bench
+benchLive = request.security(MEZ_BENCH, timeframe.period, close, lookahead=barmerge.lookahead_off)
 
 mf0  = (close - close[5])  / mlAtrSafe
 mf1  = (close - close[10]) / mlAtrSafe
@@ -219,13 +220,13 @@ mlProb = i_useMl and mlFeatReady ? mlProbCalc : na
 // 3. COMPOSITE QUALITY SCORE + VERDICT
 // ============================================================
 
-q = 0
-q += mktRiskOn       ? 25 : 0
-q += rsBoth          ? 25 : 0
-q += inBase          ? 20 : 0
-q += accum           ? 15 : 0
-q += volSupport      ? 15 : 0
-qualityScore = q   // 0–100 from the 5 on-chart axes
+qualityAccum = 0
+qualityAccum += mktRiskOn  ? 25 : 0
+qualityAccum += rsBoth     ? 25 : 0
+qualityAccum += inBase     ? 20 : 0
+qualityAccum += accum      ? 15 : 0
+qualityAccum += volSupport ? 15 : 0
+qualityScore = qualityAccum   // 0–100 from the 5 on-chart axes
 
 avoidCond   = (not mktRiskOn) or (not rsLeading) or (not inBase)
 mlOk        = (not i_useMl) or na(mlProb) or mlProb >= i_mlThr
