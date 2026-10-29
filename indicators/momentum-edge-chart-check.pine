@@ -180,10 +180,11 @@ plot(isDaily and i_showEmas ? sma200  : na, "SMA 200", color=C_MUTE,            
 plot(isDaily and i_showStruc ? prior20High : na, "Prior 20-bar high", color=C_LINE, style=plot.style_stepline)
 plot(isDaily and i_showStruc ? hi52 : na,        "52-week high",      color=color.new(#12733a, 50), style=plot.style_circles, linewidth=1)
 
+// Markers and squeeze dots: recent bars only (i_markLook).
+recent = i_markLook == 0 or bar_index > last_bar_index - i_markLook
 plotshape(isDaily and barstate.isconfirmed and recent and squeeze, "Squeeze", shape.circle, location.belowbar, color.new(#b07800, 20), size=size.tiny)
 
 // Solid = volume >= 1.3x; faded = below. Grey = trend stack failed on that bar.
-recent = i_markLook == 0 or bar_index > last_bar_index - i_markLook
 f_markerColor(bool surge, bool stack) => color.new(stack ? C_GOOD : C_MUTE, surge ? 0 : 65)
 
 plotshape(isDaily and barstate.isconfirmed and recent and setupA, "Setup A (squeeze breakout)",     shape.labelup, location.belowbar, f_markerColor(volSurge, trendStack), text="A", textcolor=color.white, size=size.tiny)
