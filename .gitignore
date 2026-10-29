@@ -4,11 +4,12 @@ notes/*
 !notes/TEMPLATE.md
 !notes/.gitkeep
 
-# Historical OHLCV data — large binary-ish CSVs, local only
-data/
+# Historical OHLCV data — large binary-ish CSVs, local only.
+# Anchored: an unanchored `data/` also matched site/data/ (the encrypted dashboard).
+/data/
 
 # Training artifacts and backtest output — local only
-results/
+/results/
 !spike/*/results/
 
 # Private Python training / backtesting pipeline

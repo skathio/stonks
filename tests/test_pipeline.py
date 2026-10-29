@@ -221,3 +221,20 @@ class LedgerPublishTime(unittest.TestCase):
         days = days_from(dt.date(2026, 10, 29), 2)
         p = ledger.evaluate(pick, days, [None, (100, 101, 99, 100, 1)], [None, (1, 1, 1, 1, 1)])
         self.assertEqual(p["entry_date"], "2026-10-30")
+
+
+class RepoHygiene(unittest.TestCase):
+    """`ship` commits site/data; an ignore rule matching it silently breaks every publish."""
+
+    def _ignored(self, path):
+        import subprocess
+        root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        return subprocess.run(["git", "-C", root, "check-ignore", "-q", path]).returncode == 0
+
+    def test_encrypted_site_data_is_trackable(self):
+        self.assertFalse(self._ignored("site/data/index.json"))
+        self.assertFalse(self._ignored("site/data/days/2026-10-28.json"))
+
+    def test_local_research_data_stays_ignored(self):
+        self.assertTrue(self._ignored("data/AAPL.csv"))
+        self.assertTrue(self._ignored(".env"))
