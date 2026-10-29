@@ -3,8 +3,10 @@
 # analysis can have, because there is no look-ahead-free way to backtest it.
 #
 # Fill model (deliberately conservative):
-#   - The dashboard publishes before the US open, so entry is the NEXT
-#     session's open, never the signal-day close.
+#   - Entry is the open of the first session that opens (09:30 ET) AFTER the
+#     pick was published, never the signal-day close. A scheduled 07:00 CET
+#     run fills at the next session's open; a manual run during US hours
+#     can't claim that day's already-printed open (look-ahead).
 #   - Open above entry_max (chased too far) -> "not_filled".
 #   - Open at or below the stop -> "gap_below_stop" (not filled).
 #   - Stop hit intrabar -> exit at the stop, or at the open on a gap down
@@ -17,14 +19,19 @@
 # Outcomes are marked at +5/+10/+20 session closes, with MFE/MAE in R. SPY's
 # return over the same window is recorded as the benchmark.
 # =============================================================================
+import datetime as dt
+from zoneinfo import ZoneInfo
+
 COST_FRACTION = 0.002
 HORIZONS = (5, 10, 20)
+ET = ZoneInfo("America/New_York")
+US_OPEN = dt.time(9, 30)
 
 
-def new_pick(as_of, candidate, lv, feat, sector):
+def new_pick(as_of, candidate, lv, feat, sector, published_utc):
     return {
         "id": f"{as_of}:{candidate['ticker']}",
-        "as_of": as_of, "ticker": candidate["ticker"], "sector": sector,
+        "as_of": as_of, "published_utc": published_utc, "ticker": candidate["ticker"], "sector": sector,
         "setup": candidate["setup"], "conviction": candidate["conviction"],
         "stop_atr": candidate["stop_atr"], "targets_r": candidate["targets_r"],
         "ref_close": lv["ref_close"], "atr": lv["atr"], "stop": lv["stop"],
@@ -39,9 +46,17 @@ def _sessions_after(days, bars, as_of):
     return [(d.isoformat(), b) for d, b in zip(days, bars) if d.isoformat() > as_of and b is not None]
 
 
+def _opens_after(day_iso, published_utc):
+    if not published_utc:
+        return True
+    open_et = dt.datetime.combine(dt.date.fromisoformat(day_iso), US_OPEN, ET)
+    return open_et > dt.datetime.fromisoformat(published_utc)
+
+
 def evaluate(pick, days, bars, spy_bars):
     """Recompute a pick's outcome from stored bars (idempotent). Returns the pick."""
-    after = _sessions_after(days, bars, pick["as_of"])
+    after = [(d, b) for d, b in _sessions_after(days, bars, pick["as_of"])
+             if _opens_after(d, pick.get("published_utc"))]
     spy_after = dict(_sessions_after(days, spy_bars, pick["as_of"]))
     if not after:
         return pick
