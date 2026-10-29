@@ -9,6 +9,7 @@ data/
 
 # Training artifacts and backtest output — local only
 results/
+!spike/*/results/
 
 # Private Python training / backtesting pipeline
 scripts/
@@ -16,3 +17,13 @@ scripts/
 # Local agent/session state — never commit
 .claude/audit.log
 .claude/somi-state/
+
+# Local secrets — never commit
+.env
+*.env
+
+# Dashboard build/test output
+dist/
+coverage/
+node_modules/
+__pycache__/

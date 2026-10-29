@@ -1,0 +1,174 @@
+{
+  "started_utc": "2026-10-29T16:45:49+00:00",
+  "host_hint": "local",
+  "universe_sizes": {
+    "S&P 500": 503,
+    "S&P 400": 400
+  },
+  "results": [
+    {
+      "source": "wikipedia",
+      "endpoint": "S&P 500",
+      "http_status": 200,
+      "ok": true,
+      "latency_ms": 443,
+      "latest_data_date": null,
+      "note": "503 tickers parsed"
+    },
+    {
+      "source": "wikipedia",
+      "endpoint": "S&P 400",
+      "http_status": 200,
+      "ok": true,
+      "latency_ms": 746,
+      "latest_data_date": null,
+      "note": "400 tickers parsed"
+    },
+    {
+      "source": "sec",
+      "endpoint": "company_tickers.json",
+      "http_status": 200,
+      "ok": true,
+      "latency_ms": 333,
+      "latest_data_date": null,
+      "note": "10430 issuers"
+    },
+    {
+      "source": "sec",
+      "endpoint": "submissions (AAPL)",
+      "http_status": 200,
+      "ok": true,
+      "latency_ms": 149,
+      "latest_data_date": "2026-10-22",
+      "note": "latest form 4; last-20 forms incl. 8-K=0, 4=16"
+    },
+    {
+      "source": "sec",
+      "endpoint": "companyfacts XBRL (AAPL)",
+      "http_status": 200,
+      "ok": true,
+      "latency_ms": 1243,
+      "latest_data_date": null,
+      "note": "503 us-gaap concepts; revenue last period end 2026-06-27"
+    },
+    {
+      "source": "stooq",
+      "endpoint": "daily csv (AAPL)",
+      "http_status": 200,
+      "ok": false,
+      "latency_ms": 158,
+      "latest_data_date": null,
+      "note": "body starts: '<!DOCTYPE html><html><head><meta charset=\"utf-8\"><meta name=\"robots\" content=\"no'"
+    },
+    {
+      "source": "yahoo",
+      "endpoint": "chart v8 (AAPL)",
+      "http_status": 429,
+      "ok": false,
+      "latency_ms": 218,
+      "latest_data_date": null,
+      "note": "unofficial; ToS forbids redistribution; often blocks datacenter IPs"
+    },
+    {
+      "source": "massive",
+      "endpoint": "grouped daily (no key)",
+      "http_status": 401,
+      "ok": true,
+      "latency_ms": 395,
+      "latest_data_date": null,
+      "note": "reachability only \u2014 set MASSIVE_API_KEY for a real probe"
+    },
+    {
+      "source": "finnhub",
+      "endpoint": "earnings calendar (no key)",
+      "http_status": 401,
+      "ok": true,
+      "latency_ms": 275,
+      "latest_data_date": null,
+      "note": "reachability only \u2014 set FINNHUB_API_KEY for the free-endpoint map"
+    },
+    {
+      "source": "nasdaq",
+      "endpoint": "earnings calendar 2026-10-29",
+      "http_status": 200,
+      "ok": true,
+      "latency_ms": 1123,
+      "latest_data_date": null,
+      "note": "303 reporting today; unofficial endpoint"
+    },
+    {
+      "source": "fred",
+      "endpoint": "DGS10 (no key)",
+      "http_status": 400,
+      "ok": true,
+      "latency_ms": 289,
+      "latest_data_date": null,
+      "note": "reachability only \u2014 set FRED_API_KEY"
+    }
+  ],
+  "timing_03_cet": [
+    {
+      "run_cet": "Fri 2026-10-30 03:00 CET",
+      "run_et": "Thu 2026-10-29 22:00 EDT",
+      "last_closed_session": "2026-10-29",
+      "massive_free_newest": "2026-10-28",
+      "sessions_stale": 1
+    },
+    {
+      "run_cet": "Sat 2026-10-31 03:00 CET",
+      "run_et": "Fri 2026-10-30 22:00 EDT",
+      "last_closed_session": "2026-10-30",
+      "massive_free_newest": "2026-10-29",
+      "sessions_stale": 1
+    },
+    {
+      "run_cet": "Sun 2026-11-01 03:00 CET",
+      "run_et": "Sat 2026-10-31 22:00 EDT",
+      "last_closed_session": "2026-10-30",
+      "massive_free_newest": "2026-10-30",
+      "sessions_stale": 0
+    },
+    {
+      "run_cet": "Mon 2026-11-02 03:00 CET",
+      "run_et": "Sun 2026-11-01 21:00 EST",
+      "last_closed_session": "2026-10-30",
+      "massive_free_newest": "2026-10-30",
+      "sessions_stale": 0
+    },
+    {
+      "run_cet": "Tue 2026-11-03 03:00 CET",
+      "run_et": "Mon 2026-11-02 21:00 EST",
+      "last_closed_session": "2026-11-02",
+      "massive_free_newest": "2026-10-30",
+      "sessions_stale": 1
+    },
+    {
+      "run_cet": "Wed 2026-11-04 03:00 CET",
+      "run_et": "Tue 2026-11-03 21:00 EST",
+      "last_closed_session": "2026-11-03",
+      "massive_free_newest": "2026-11-02",
+      "sessions_stale": 1
+    },
+    {
+      "run_cet": "Thu 2026-11-05 03:00 CET",
+      "run_et": "Wed 2026-11-04 21:00 EST",
+      "last_closed_session": "2026-11-04",
+      "massive_free_newest": "2026-11-03",
+      "sessions_stale": 1
+    },
+    {
+      "run_cet": "Tue 2027-03-23 03:00 CET",
+      "run_et": "Mon 2027-03-22 22:00 EDT",
+      "last_closed_session": "2027-03-22",
+      "massive_free_newest": "2027-03-19",
+      "sessions_stale": 1
+    },
+    {
+      "run_cet": "Wed 2027-07-14 03:00 CEST",
+      "run_et": "Tue 2027-07-13 21:00 EDT",
+      "last_closed_session": "2027-07-13",
+      "massive_free_newest": "2027-07-12",
+      "sessions_stale": 1
+    }
+  ]
+}

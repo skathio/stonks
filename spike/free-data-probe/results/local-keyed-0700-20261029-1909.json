@@ -1,0 +1,264 @@
+{
+  "started_utc": "2026-10-29T17:09:35+00:00",
+  "host_hint": "local",
+  "universe_sizes": {
+    "S&P 500": 503,
+    "S&P 400": 400
+  },
+  "results": [
+    {
+      "source": "wikipedia",
+      "endpoint": "S&P 500",
+      "http_status": 200,
+      "ok": true,
+      "latency_ms": 453,
+      "latest_data_date": null,
+      "note": "503 tickers parsed"
+    },
+    {
+      "source": "wikipedia",
+      "endpoint": "S&P 400",
+      "http_status": 200,
+      "ok": true,
+      "latency_ms": 1089,
+      "latest_data_date": null,
+      "note": "400 tickers parsed"
+    },
+    {
+      "source": "sec",
+      "endpoint": "company_tickers.json",
+      "http_status": 200,
+      "ok": true,
+      "latency_ms": 483,
+      "latest_data_date": null,
+      "note": "10430 issuers"
+    },
+    {
+      "source": "sec",
+      "endpoint": "submissions (AAPL)",
+      "http_status": 200,
+      "ok": true,
+      "latency_ms": 177,
+      "latest_data_date": "2026-10-22",
+      "note": "latest form 4; last-20 forms incl. 8-K=0, 4=16"
+    },
+    {
+      "source": "sec",
+      "endpoint": "companyfacts XBRL (AAPL)",
+      "http_status": 200,
+      "ok": true,
+      "latency_ms": 1666,
+      "latest_data_date": null,
+      "note": "503 us-gaap concepts; revenue last period end 2026-06-27"
+    },
+    {
+      "source": "stooq",
+      "endpoint": "daily csv (AAPL)",
+      "http_status": 200,
+      "ok": false,
+      "latency_ms": 133,
+      "latest_data_date": null,
+      "note": "body starts: '<!DOCTYPE html><html><head><meta charset=\"utf-8\"><meta name=\"robots\" content=\"no'"
+    },
+    {
+      "source": "yahoo",
+      "endpoint": "chart v8 (AAPL)",
+      "http_status": 429,
+      "ok": false,
+      "latency_ms": 137,
+      "latest_data_date": null,
+      "note": "unofficial; ToS forbids redistribution; often blocks datacenter IPs"
+    },
+    {
+      "source": "massive",
+      "endpoint": "grouped daily 2026-10-29",
+      "http_status": 403,
+      "ok": false,
+      "latency_ms": 392,
+      "latest_data_date": null,
+      "note": "0 tickers in one call"
+    },
+    {
+      "source": "massive",
+      "endpoint": "grouped daily 2026-10-28",
+      "http_status": 200,
+      "ok": true,
+      "latency_ms": 1498,
+      "latest_data_date": "2026-10-28",
+      "note": "12613 tickers in one call"
+    },
+    {
+      "source": "massive",
+      "endpoint": "reference splits",
+      "http_status": 200,
+      "ok": true,
+      "latency_ms": 405,
+      "latest_data_date": "2027-01-13",
+      "note": "needed to re-adjust stored history"
+    },
+    {
+      "source": "finnhub",
+      "endpoint": "quote (same-day OHLC)",
+      "http_status": 200,
+      "ok": true,
+      "latency_ms": 172,
+      "latest_data_date": null,
+      "note": "8 items"
+    },
+    {
+      "source": "finnhub",
+      "endpoint": "earnings calendar",
+      "http_status": 200,
+      "ok": true,
+      "latency_ms": 289,
+      "latest_data_date": null,
+      "note": "1500 items"
+    },
+    {
+      "source": "finnhub",
+      "endpoint": "company news",
+      "http_status": 200,
+      "ok": true,
+      "latency_ms": 320,
+      "latest_data_date": null,
+      "note": "247 items"
+    },
+    {
+      "source": "finnhub",
+      "endpoint": "recommendation trends",
+      "http_status": 200,
+      "ok": true,
+      "latency_ms": 169,
+      "latest_data_date": null,
+      "note": "4 items"
+    },
+    {
+      "source": "finnhub",
+      "endpoint": "price target",
+      "http_status": 403,
+      "ok": false,
+      "latency_ms": 313,
+      "latest_data_date": null,
+      "note": "{\"error\":\"You don't have access to this resource.\"}"
+    },
+    {
+      "source": "finnhub",
+      "endpoint": "eps estimates",
+      "http_status": 403,
+      "ok": false,
+      "latency_ms": 346,
+      "latest_data_date": null,
+      "note": "{\"error\":\"You don't have access to this resource.\"}"
+    },
+    {
+      "source": "finnhub",
+      "endpoint": "basic financials",
+      "http_status": 200,
+      "ok": true,
+      "latency_ms": 270,
+      "latest_data_date": null,
+      "note": "4 items"
+    },
+    {
+      "source": "finnhub",
+      "endpoint": "daily candles",
+      "http_status": 403,
+      "ok": false,
+      "latency_ms": 174,
+      "latest_data_date": null,
+      "note": "{\"error\":\"You don't have access to this resource.\"}"
+    },
+    {
+      "source": "nasdaq",
+      "endpoint": "earnings calendar 2026-10-29",
+      "http_status": 200,
+      "ok": true,
+      "latency_ms": 2132,
+      "latest_data_date": null,
+      "note": "303 reporting today (pre/after-mkt, consensus EPS, #ests); unofficial endpoint"
+    },
+    {
+      "source": "fred",
+      "endpoint": "DGS10 graph CSV (no key)",
+      "http_status": null,
+      "ok": false,
+      "latency_ms": 31128,
+      "latest_data_date": null,
+      "note": "TimeoutError: The read operation timed out"
+    },
+    {
+      "source": "fred",
+      "endpoint": "DGS10 10y yield",
+      "http_status": 200,
+      "ok": true,
+      "latency_ms": 5390,
+      "latest_data_date": "2026-10-27",
+      "note": "value 4.99"
+    }
+  ],
+  "timing_run_cet": [
+    {
+      "run_cet": "Fri 2026-10-30 07:00 CET",
+      "run_et": "Fri 2026-10-30 02:00 EDT",
+      "last_closed_session": "2026-10-29",
+      "massive_free_newest": "2026-10-29",
+      "sessions_stale": 0
+    },
+    {
+      "run_cet": "Sat 2026-10-31 07:00 CET",
+      "run_et": "Sat 2026-10-31 02:00 EDT",
+      "last_closed_session": "2026-10-30",
+      "massive_free_newest": "2026-10-30",
+      "sessions_stale": 0
+    },
+    {
+      "run_cet": "Sun 2026-11-01 07:00 CET",
+      "run_et": "Sun 2026-11-01 01:00 EST",
+      "last_closed_session": "2026-10-30",
+      "massive_free_newest": "2026-10-30",
+      "sessions_stale": 0
+    },
+    {
+      "run_cet": "Mon 2026-11-02 07:00 CET",
+      "run_et": "Mon 2026-11-02 01:00 EST",
+      "last_closed_session": "2026-10-30",
+      "massive_free_newest": "2026-10-30",
+      "sessions_stale": 0
+    },
+    {
+      "run_cet": "Tue 2026-11-03 07:00 CET",
+      "run_et": "Tue 2026-11-03 01:00 EST",
+      "last_closed_session": "2026-11-02",
+      "massive_free_newest": "2026-11-02",
+      "sessions_stale": 0
+    },
+    {
+      "run_cet": "Wed 2026-11-04 07:00 CET",
+      "run_et": "Wed 2026-11-04 01:00 EST",
+      "last_closed_session": "2026-11-03",
+      "massive_free_newest": "2026-11-03",
+      "sessions_stale": 0
+    },
+    {
+      "run_cet": "Thu 2026-11-05 07:00 CET",
+      "run_et": "Thu 2026-11-05 01:00 EST",
+      "last_closed_session": "2026-11-04",
+      "massive_free_newest": "2026-11-04",
+      "sessions_stale": 0
+    },
+    {
+      "run_cet": "Tue 2027-03-23 07:00 CET",
+      "run_et": "Tue 2027-03-23 02:00 EDT",
+      "last_closed_session": "2027-03-22",
+      "massive_free_newest": "2027-03-22",
+      "sessions_stale": 0
+    },
+    {
+      "run_cet": "Wed 2027-07-14 07:00 CEST",
+      "run_et": "Wed 2027-07-14 01:00 EDT",
+      "last_closed_session": "2027-07-13",
+      "massive_free_newest": "2027-07-13",
+      "sessions_stale": 0
+    }
+  ]
+}
