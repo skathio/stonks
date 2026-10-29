@@ -58,6 +58,7 @@ Skip stages only when the task is purely cosmetic (renaming a group label, fixin
 
 ### No-Repaint Patterns
 - **Higher-timeframe data**: `request.security(sym, tf, expr, lookahead=barmerge.lookahead_off)` and reference `[1]` if the value must be confirmed.
+- **Same-timeframe, other symbol** (e.g. daily SPY on a daily chart): `lookahead_off` but **no `[1]`**. `[1]` there misaligns the series by a bar. Confirm by scoring closed bars instead.
 - **Pivots**: `ta.pivothigh` / `ta.pivotlow` confirm `len` bars later — never plot them as if they're live. Offset labels by `-len`.
 - **Signals**: a signal that flips on the current bar before close is fine for alerts, but any backtest claim must use `barstate.isconfirmed` or the prior bar's value.
 - Never use `security` without specifying `lookahead`. The default has bitten people.
