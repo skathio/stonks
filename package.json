@@ -8,7 +8,18 @@
     "node": ">=22"
   },
   "scripts": {
+    "dev": "vite --config vite.config.js",
     "build": "node tools/build.mjs",
-    "test": "mkdir -p coverage && node --test --experimental-test-coverage --test-coverage-include='site/js/**' --test-coverage-include='tools/**' --test-reporter=spec --test-reporter-destination=stdout --test-reporter=lcov --test-reporter-destination=coverage/lcov.info 'tests/**/*.test.mjs'"
+    "test": "mkdir -p coverage && node --test --experimental-test-coverage --test-coverage-include='site/src/lib/**' --test-coverage-include='tools/**' --test-reporter=spec --test-reporter-destination=stdout --test-reporter=lcov --test-reporter-destination=coverage/lcov.info 'tests/**/*.test.mjs'"
+  },
+  "dependencies": {
+    "react": "18.3.1",
+    "react-dom": "18.3.1"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "4.1.8",
+    "@vitejs/plugin-react": "4.5.0",
+    "tailwindcss": "4.1.8",
+    "vite": "6.4.5"
   }
 }

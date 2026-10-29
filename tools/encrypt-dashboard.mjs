@@ -11,7 +11,7 @@
 import { mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { dirname, join, relative, sep } from "node:path";
 import { fileURLToPath } from "node:url";
-import { encryptText, importKeyText, makeKeyInfo } from "../site/js/crypto.js";
+import { encryptText, importKeyText, makeKeyInfo } from "../site/src/lib/crypto.js";
 
 async function listJson(dir) {
   const out = [];

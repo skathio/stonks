@@ -100,3 +100,35 @@ export function routeFromHash(hash) {
   if (m) return { view: "day", date: m[1] };
   return { view: "day", date: null };
 }
+
+/** Percent change from `from` to `to`, or null. */
+export function pctFrom(from, to) {
+  return isNum(from) && isNum(to) && from !== 0 ? (100 * (to - from)) / from : null;
+}
+
+/** First sentence of a paragraph, for a one-line headline. */
+export function firstSentence(text, max = 180) {
+  const s = String(text ?? "").trim();
+  const m = s.match(/^.+?[.!?](?=\s|$)/);
+  const out = m ? m[0] : s;
+  return out.length > max ? `${out.slice(0, max - 1).trimEnd()}…` : out;
+}
+
+const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+/** "2026-10-28" -> "Wed Oct 28" (date-only, no timezone shift). */
+export function shortDate(iso) {
+  const m = String(iso ?? "").match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) return String(iso ?? "");
+  const d = new Date(Date.UTC(+m[1], +m[2] - 1, +m[3]));
+  return `${WEEKDAYS[d.getUTCDay()]} ${MONTHS[d.getUTCMonth()]} ${d.getUTCDate()}`;
+}
+
+/** Compact earnings chip text + tone. */
+export function earningsChip(earnings, horizon) {
+  if (!earnings) return { text: "Earnings: none scheduled", tone: "muted" };
+  const n = earnings.sessions_away;
+  const inside = isNum(n) && isNum(horizon) && n <= horizon;
+  return { text: `Earnings ${shortDate(earnings.date)} · ${n}d${earnings.conflict ? " ⚠" : ""}`, tone: inside ? "warn" : "muted", inside };
+}

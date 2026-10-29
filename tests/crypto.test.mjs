@@ -7,7 +7,7 @@ import { test } from "node:test";
 import {
   CHECK_AAD, decryptJson, encryptJson, extractKeyText, fromB64, fromB64Url, generateKeyText, importKeyText,
   isKeyText, makeKeyInfo, toB64, toB64Url, verifyKey,
-} from "../site/js/crypto.js";
+} from "../site/src/lib/crypto.js";
 import { encryptDashboard } from "../tools/encrypt-dashboard.mjs";
 
 const KEY = generateKeyText();

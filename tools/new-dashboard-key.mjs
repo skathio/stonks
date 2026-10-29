@@ -10,7 +10,7 @@
 // it once per device unlocks the dashboard there for good. A new key replaces
 // the old one on the next daily run, and old links then stop working.
 // =============================================================================
-import { generateKeyText } from "../site/js/crypto.js";
+import { generateKeyText } from "../site/src/lib/crypto.js";
 
 const site = (process.argv[2] || "https://skathio.github.io/stonks/").replace(/#.*$/, "");
 const key = generateKeyText();
