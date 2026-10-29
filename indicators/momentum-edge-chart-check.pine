@@ -1,6 +1,6 @@
 //@version=6
 // ============================================================
-// Momentum Edge — Chart Check (Daily) — 2026-10-29 — v1.1
+// Momentum Edge — Chart Check (Daily) — 2026-10-29 — v1.2
 // Pine Script v6 | Author: skathi | Replaces ME Swing Engine + ME Regime & Quality
 // ============================================================
 // Purpose:   Visual confirmation layer for the daily agent dashboard. Mirrors
@@ -80,6 +80,10 @@ i_showStruc = input.bool(true,    "Show structure (prior-20 high, 52w high, base
 i_showLvls  = input.bool(true,    "Show levels (stop / chase / targets)",                              group="Display")
 i_showPanel = input.bool(true,    "Show panel",                                                        group="Display")
 i_nearPct   = input.float(5.0,    "Borderline band (%)",          minval=0.0, maxval=25.0, step=1.0,  group="Display")
+i_markLook  = input.int(120,      "Markers: last N bars (0 = all)", minval=0, maxval=5000,               group="Display")
+i_panelPos  = input.string("bottom_left", "Panel position", options=["top_right", "middle_right", "bottom_right", "top_left", "middle_left", "bottom_left"], group="Panel")
+i_panelSize = input.string("small", "Panel text size", options=["tiny", "small", "normal"],                group="Panel")
+i_compact   = input.bool(true,    "Compact panel (verdict, setup, volume, extension, earnings)",         group="Panel")
 
 // ============================================================
 // 3. FEATURES — one line per features.py definition
@@ -176,14 +180,15 @@ plot(isDaily and i_showEmas ? sma200  : na, "SMA 200", color=C_MUTE,            
 plot(isDaily and i_showStruc ? prior20High : na, "Prior 20-bar high", color=C_LINE, style=plot.style_stepline)
 plot(isDaily and i_showStruc ? hi52 : na,        "52-week high",      color=color.new(#12733a, 50), style=plot.style_circles, linewidth=1)
 
-plotshape(isDaily and barstate.isconfirmed and squeeze, "Squeeze", shape.circle, location.belowbar, color.new(#b07800, 20), size=size.tiny)
+plotshape(isDaily and barstate.isconfirmed and recent and squeeze, "Squeeze", shape.circle, location.belowbar, color.new(#b07800, 20), size=size.tiny)
 
 // Solid = volume >= 1.3x; faded = below. Grey = trend stack failed on that bar.
+recent = i_markLook == 0 or bar_index > last_bar_index - i_markLook
 f_markerColor(bool surge, bool stack) => color.new(stack ? C_GOOD : C_MUTE, surge ? 0 : 65)
 
-plotshape(isDaily and barstate.isconfirmed and setupA, "Setup A (squeeze breakout)",     shape.labelup, location.belowbar, f_markerColor(volSurge, trendStack), text="A", textcolor=color.white, size=size.small)
-plotshape(isDaily and barstate.isconfirmed and setupb, "Setup b (breakout, no squeeze)", shape.labelup, location.belowbar, f_markerColor(volSurge, trendStack), text="b", textcolor=color.white, size=size.tiny)
-plotshape(isDaily and barstate.isconfirmed and setupB, "Setup B (pullback reclaim)",     shape.labelup, location.belowbar, color.new(trendStack ? C_ACC : C_MUTE, volSurge ? 0 : 65), text="B", textcolor=color.white, size=size.small)
+plotshape(isDaily and barstate.isconfirmed and recent and setupA, "Setup A (squeeze breakout)",     shape.labelup, location.belowbar, f_markerColor(volSurge, trendStack), text="A", textcolor=color.white, size=size.tiny)
+plotshape(isDaily and barstate.isconfirmed and recent and setupb, "Setup b (breakout, no squeeze)", shape.labelup, location.belowbar, f_markerColor(volSurge, trendStack), text="b", textcolor=color.white, size=size.tiny)
+plotshape(isDaily and barstate.isconfirmed and recent and setupB, "Setup B (pullback reclaim)",     shape.labelup, location.belowbar, color.new(trendStack ? C_ACC : C_MUTE, volSurge ? 0 : 65), text="B", textcolor=color.white, size=size.tiny)
 
 bgcolor(isDaily and barstate.isconfirmed and extended ? color.new(#b3261e, 90) : na, title="Extended > 4 ATR")
 
@@ -277,38 +282,42 @@ headCol    = not isDaily or pinMissed or pinTooOld ? C_WARN : vColor
 earnTxt    = na(earnSess) ? "no date (TV)" : str.format("{0} · ~{1} sess (TV, from today)", str.format_time(int(earnT), "MMM d", syminfo.timezone), earnSess)
 earnCol    = earnSoon ? C_BAD : not na(earnSess) and earnSess <= i_horizon ? C_WARN : C_MUTE
 
-var table panel = table.new(position.top_right, 2, 13, bgcolor=color.new(#171a21, 8), border_width=0, frame_color=color.new(#2a2f3a, 0), frame_width=1)
-f_key(int r, string k) => table.cell(panel, 0, r, k, text_color=color.new(#9aa2b1, 0), text_size=size.small, text_halign=text.align_left)
-f_val(int r, string v, color c) => table.cell(panel, 1, r, v, text_color=c, text_size=size.small, text_halign=text.align_right)
-// Rows render only on the last bar (cheap no-ops elsewhere: empty strings).
+panelPos  = i_panelPos == "top_right" ? position.top_right : i_panelPos == "middle_right" ? position.middle_right : i_panelPos == "bottom_right" ? position.bottom_right : i_panelPos == "top_left" ? position.top_left : i_panelPos == "middle_left" ? position.middle_left : position.bottom_left
+panelText = i_panelSize == "tiny" ? size.tiny : i_panelSize == "normal" ? size.normal : size.small
+var table panel = table.new(panelPos, 2, 13, bgcolor=color.new(#171a21, 8), border_width=0, frame_color=color.new(#2a2f3a, 0), frame_width=1)
+f_key(int r, string k) => table.cell(panel, 0, r, k, text_color=color.new(#9aa2b1, 0), text_size=panelText, text_halign=text.align_left)
+f_val(int r, string v, color c) => table.cell(panel, 1, r, v, text_color=c, text_size=panelText, text_halign=text.align_right)
+// Rows render only on the last bar (cheap no-ops elsewhere: empty strings). Compact mode
+// shows rows 0-4 (what you act on) and blanks the context rows 5-12.
 showP = barstate.islast and i_showPanel
 showD = showP and isDaily
+showX = showD and not i_compact
 f_key(0, showP ? header : "")
 f_val(0, showP ? headVal : "", headCol)
-f_key(1, showD ? "SPY gate" : "")
-f_val(1, showD ? (cRisk ? "risk-on" : "off") : "", cRisk ? C_GOOD : C_WARN)
-f_key(2, showD ? "Trend stack" : "")
-f_val(2, showD ? (cStack ? "yes" : "no") + (sma200Rising[off] ? " · 200d rising" : " · 200d flat") : "", cStack ? C_GOOD : C_WARN)
-f_key(3, showD ? "RS vs SPY" : "")
-f_val(3, showD ? (cRs ? "rising" : "not rising") : "", cRs ? C_GOOD : C_WARN)
-f_key(4, showD ? "Setup" : "")
-f_val(4, showD ? setupTxt : "", cA or cBo or cB ? C_GOOD : C_MUTE)
-f_key(5, showD ? "Volume" : "")
-f_val(5, showD ? str.format("{0,number,#.##}x", cVol) : "", f_near(cVol, VOL_SURGE) ? C_WARN : cVol >= VOL_SURGE ? C_GOOD : C_MUTE)
-f_key(6, showD ? "Extension" : "")
-f_val(6, showD ? str.format("{0,number,#.#} ATR vs EMA21", cExt) : "", cExt > MAX_EXT_ATR ? C_BAD : f_near(cExt, MAX_EXT_ATR) ? C_WARN : C_GOOD)
-f_key(7, showD ? "To prior-20 high" : "")
-f_val(7, showD ? str.format("{0,number,#.##} ATR", cPrHi) : "", cPrHi <= NEAR_TIGHT ? C_GOOD : C_MUTE)
-f_key(8, showD ? "To 52w high" : "")
-f_val(8, showD ? str.format("{0,number,#.#} ATR", dist52Atr[off]) : "", dist52Atr[off] <= NEAR_52W_ATR ? C_GOOD : C_MUTE)
-f_key(9, showD ? "Base (15d)" : "")
-f_val(9, showD ? str.format("{0,number,#.#} ATR range", baseRangeAtr[off]) : "", C_MUTE)
-f_key(10, showD ? "ATR" : "")
-f_val(10, showD ? str.format("{0,number,#.##}% of price", 100 * atr[off] / close[off]) : "", C_MUTE)
-f_key(11, showD ? "Next earnings" : "")
-f_val(11, showD ? earnTxt : "", earnCol)
-f_key(12, showD ? "Levels" : "")
-f_val(12, showD ? (pinOk ? str.format("pinned · stop {0} ATR", i_stopAtr) : "auto (pin to match dashboard)") : "", pinOk ? C_ACC : C_MUTE)
+f_key(1, showD ? "Setup" : "")
+f_val(1, showD ? setupTxt : "", cA or cBo or cB ? C_GOOD : C_MUTE)
+f_key(2, showD ? "Volume" : "")
+f_val(2, showD ? str.format("{0,number,#.##}x (need 1.3x)", cVol) : "", f_near(cVol, VOL_SURGE) ? C_WARN : cVol >= VOL_SURGE ? C_GOOD : C_MUTE)
+f_key(3, showD ? "Extension" : "")
+f_val(3, showD ? str.format("{0,number,#.#} ATR vs EMA21", cExt) : "", cExt > MAX_EXT_ATR ? C_BAD : f_near(cExt, MAX_EXT_ATR) ? C_WARN : C_GOOD)
+f_key(4, showD ? "Next earnings" : "")
+f_val(4, showD ? earnTxt : "", earnCol)
+f_key(5, showX ? "SPY gate" : "")
+f_val(5, showX ? (cRisk ? "risk-on" : "off") : "", cRisk ? C_GOOD : C_WARN)
+f_key(6, showX ? "Trend stack" : "")
+f_val(6, showX ? (cStack ? "yes" : "no") + (sma200Rising[off] ? " · 200d rising" : " · 200d flat") : "", cStack ? C_GOOD : C_WARN)
+f_key(7, showX ? "RS vs SPY" : "")
+f_val(7, showX ? (cRs ? "rising" : "not rising") : "", cRs ? C_GOOD : C_WARN)
+f_key(8, showX ? "To prior-20 high" : "")
+f_val(8, showX ? str.format("{0,number,#.##} ATR", cPrHi) : "", cPrHi <= NEAR_TIGHT ? C_GOOD : C_MUTE)
+f_key(9, showX ? "To 52w high" : "")
+f_val(9, showX ? str.format("{0,number,#.#} ATR", dist52Atr[off]) : "", dist52Atr[off] <= NEAR_52W_ATR ? C_GOOD : C_MUTE)
+f_key(10, showX ? "Base (15d)" : "")
+f_val(10, showX ? str.format("{0,number,#.#} ATR range", baseRangeAtr[off]) : "", C_MUTE)
+f_key(11, showX ? "ATR" : "")
+f_val(11, showX ? str.format("{0,number,#.##}% of price", 100 * atr[off] / close[off]) : "", C_MUTE)
+f_key(12, showX ? "Levels" : "")
+f_val(12, showX ? (pinOk ? str.format("pinned · stop {0} ATR", i_stopAtr) : "auto (pin to match dashboard)") : "", pinOk ? C_ACC : C_MUTE)
 
 // ============================================================
 // 8. ALERTS — confirmed bars only, with context
