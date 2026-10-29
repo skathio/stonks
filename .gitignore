@@ -21,3 +21,9 @@ scripts/
 # Local secrets — never commit
 .env
 *.env
+
+# Dashboard build/test output
+dist/
+coverage/
+node_modules/
+__pycache__/

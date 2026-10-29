@@ -115,10 +115,23 @@ notes/                            Private research notes — gitignored except T
 data/                             Historical OHLCV CSVs (gitignored — local only).
 scripts/                          Python training / backtest harness (gitignored — local only).
 results/                          Backtest & training output (gitignored — local only).
+pipeline/                         Daily agent data pipeline (stdlib Python): history, features, enrich, publish, ledger.
+site/                             Encrypted dashboard (static; GitHub Pages via hashira). site/data/ = ciphertext only.
+tools/                            Node build + payload encryption (tools/encrypt-dashboard.mjs).
+tests/                            Python (test_*.py) and Node (*.test.mjs) tests.
+agent/ROUTINE.md                  How the daily cloud routine is wired (prompt, environment, flow).
+spike/                            Feasibility spikes (kept as a record).
+.github/workflows/deploy.yml      hashira static-webapp CI + Pages deploy.
 CLAUDE.md                         This file.
 README.md                         Public-facing repo overview.
 .gitignore                        Keeps notes/, data/, scripts/, results/ private.
 ```
+
+**Private state repo `skathio/stonks-data`** (cloned next to this repo): raw price history, the agent's
+analysis prompt (`agent/PROMPT.md` — edge IP), plaintext runs, the pick ledger. Massive's and Finnhub's
+terms forbid redistributing their data or results derived from it: never commit market data or plaintext
+analysis to this public repo. Only `tools/encrypt-dashboard.mjs` output may land in `site/data/`, and
+`tools/build.mjs` refuses to build anything else.
 
 **Two-tier documentation:**
 - **Public companion (`indicators/<slug>.md`)**: usage, inputs, compatibility. No edge thesis, no failure conditions, no research detail. Safe to publish.

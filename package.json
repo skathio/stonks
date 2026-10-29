@@ -1,0 +1,14 @@
+{
+  "name": "stonks-dashboard",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Encrypted daily swing-scan dashboard (static, zero dependencies)",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "node tools/build.mjs",
+    "test": "mkdir -p coverage && node --test --experimental-test-coverage --test-coverage-include='site/js/**' --test-coverage-include='tools/**' --test-reporter=spec --test-reporter-destination=stdout --test-reporter=lcov --test-reporter-destination=coverage/lcov.info 'tests/**/*.test.mjs'"
+  }
+}

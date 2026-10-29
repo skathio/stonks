@@ -89,8 +89,25 @@ indicators/
   momentum-edge-regime.md       Usage, inputs, compatibility
 notes/
   TEMPLATE.md                   Research-note template
+pipeline/                       Daily agent data pipeline (stdlib Python)
+site/                           Encrypted daily-scan dashboard (GitHub Pages)
+tools/                          Dashboard build + payload encryption (Node, no dependencies)
+tests/                          Python + Node tests
+agent/ROUTINE.md                How the daily agent routine is wired
 CLAUDE.md                       Development guidelines and coding standards
 ```
+
+---
+
+## Daily scan dashboard
+
+A scheduled Claude agent analyses the S&P 500 + S&P 400 every morning (07:00 CET), after the US session's
+data is final. It publishes long swing-trade candidates (regime read, setup, conviction, ATR-based
+stop/targets, earnings timing) and a forward-tracked record of every past pick to GitHub Pages.
+
+The published data is **encrypted** (AES-256-GCM, key derived from a passphrase with PBKDF2) and decrypted
+in the browser. The free market-data feeds it uses only allow personal, non-public use, so the site is a
+private dashboard that happens to be hosted on Pages. See [`agent/ROUTINE.md`](agent/ROUTINE.md).
 
 ---
 

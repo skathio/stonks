@@ -1,0 +1,56 @@
+# Build, test, scan and deploy the encrypted dashboard to GitHub Pages via the
+# hashira static-webapp flow (docs/flows/static-webapp.md in skathio/hashira).
+#
+# Trigger: the daily agent pushes the encrypted payload in site/data/ to main.
+# That push comes from the user's GitHub identity through the Claude GitHub
+# proxy, not GITHUB_TOKEN, so it does trigger this workflow.
+#
+# The github-pages environment deliberately has no required reviewer: a
+# reviewer would turn every daily publish into a manual approval. Deploys
+# are limited to main by the environment's branch policy instead.
+name: deploy
+on:
+  push:
+    branches: [main]
+    paths:
+      - "site/**"
+      - "tools/**"
+      - "tests/**"
+      - "package.json"
+      - "package-lock.json"
+      - ".github/workflows/deploy.yml"
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  ci:
+    # hashira main @ e4facc4 (includes the npm-ci and coverage-report fixes after v2.0.1).
+    uses: skathio/hashira/.github/workflows/static-webapp-ci.yml@e4facc4ca8d8896285931a3b80a1a958584d1a85
+    permissions:
+      contents: read
+      id-token: write
+      pages: write
+      pull-requests: write
+      security-events: write
+    with:
+      node_version: "22"
+      build_command: "npm run build"
+      output_dir: "dist"
+      test_command: "npm test"
+      coverage_path: "coverage/lcov.info"
+      library_ref: "e4facc4ca8d8896285931a3b80a1a958584d1a85"
+  deploy:
+    needs: ci
+    runs-on: ubuntu-latest
+    environment: github-pages
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    steps:
+      - uses: skathio/hashira/.github/actions/pages-deploy@e4facc4ca8d8896285931a3b80a1a958584d1a85
