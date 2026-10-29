@@ -11,7 +11,7 @@ earnings dates, news, and macro?
 | # | What | Status |
 |---|---|---|
 | 1 | Local probe of every free source (`probe.py`) | **Done**, with and without keys |
-| 2 | The same probe inside a Claude Code cloud session, plus web search (`cloud-task-prompt.md`) | Ready: branch pushed. Needs the environment and task created in claude.ai. |
+| 2 | The same probe inside a Claude Code cloud session, plus web search (`cloud-task-prompt.md`) | **Passed** 2026-10-29 17:30 UTC. Report on branch `claude/spike-free-data-probe`. |
 | 3 | Push to the repo triggers the hashira Pages deploy (minimal static page) | Not started |
 
 ## Phase 1 results (local, no keys, 2026-10-29 16:45 UTC)
@@ -48,3 +48,21 @@ python3 probe.py --proxy-auth --out results/cloud.json
 ```
 
 The Massive probe sleeps 13 s between calls to stay under the free limit of 5 calls/min.
+
+## Phase 2 results (cloud session, 2026-10-29 17:30 UTC)
+
+- **Every needed source works through the agent proxy:** Wikipedia, SEC,
+  Massive, Finnhub, Nasdaq and FRED. Massive and Finnhub authenticated with
+  **proxy-injected network secrets**; no key was in the session.
+- **Push works:** the run committed its report and pushed to a `claude/` branch.
+- Run took about 4 minutes in total, 76 s of it the probe. 30 s of that was the
+  dead FRED CSV timeout, so drop that probe.
+- **Web search works, but can't be trusted for numbers.** Earnings dates
+  conflicted across sites, price-target consensus was stale or undated, and
+  breadth results were 2018–2025. Implications:
+  - Hard numbers come from structured APIs: earnings dates from the Finnhub
+    and Nasdaq calendars, and breadth **computed** from Massive grouped daily.
+  - Web search is for qualitative catalysts only, and every claim must carry a
+    date.
+- Stooq was blocked by the allowlist. That's expected, since it isn't listed
+  and was already dropped.
