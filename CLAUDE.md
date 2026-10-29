@@ -105,10 +105,8 @@ If the user asks for any of these, **flag the issue and propose the sound altern
 
 ```
 indicators/                       Pine v6 source (`.pine`) + public-facing companion docs (`.md`)
-  momentum-edge-engine.pine
-  momentum-edge-engine.md         High-level usage doc — public-safe, no edge IP.
-  momentum-edge-regime.pine
-  momentum-edge-regime.md
+  momentum-edge-chart-check.pine  Daily confirmation overlay; PARITY block mirrors pipeline/features.py.
+  momentum-edge-chart-check.md    High-level usage doc — public-safe, no edge IP.
 notes/                            Private research notes — gitignored except TEMPLATE.md
   TEMPLATE.md                     Blank research-note template (tracked).
   <slug>.md                       Per-indicator deep notes (gitignored — local only).

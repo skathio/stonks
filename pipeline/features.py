@@ -1,8 +1,8 @@
 # =============================================================================
 # Per-ticker features and market regime.
 #
-# Definitions mirror the Momentum Edge Pine indicators (indicators/*.pine) so
-# that what the agent reads matches what the chart shows in TradingView:
+# Definitions are mirrored constant-for-constant by indicators/momentum-edge-chart-check.pine
+# (PARITY block), so what the agent reads matches what the chart shows in TradingView:
 #   EMA 9/21/50, SPY EMA50 risk-on gate, RS = close/SPY smoothed by EMA20 and
 #   "rising" over 5 bars, squeeze = BB(20, 2) inside KC(20, 1.5 x ATR),
 #   breakout = close above prior 20-bar high, pullback = touch of a rising
@@ -256,7 +256,7 @@ def benchmark_state(bars):
     return {
         "close": _r(closes[-1]),
         "above_ema50": closes[-1] > e50[-1],
-        "ema50_rising": e50[-1] > e50[-6],      # i_mktEmaLen / RS-rising lookback
+        "ema50_rising": e50[-1] > e50[-6],      # MKT_EMA + 5-bar slope (indicators/momentum-edge-chart-check.pine PARITY)
         "risk_on_gate": closes[-1] > e50[-1] and e50[-1] > e50[-6],
         "close_vs_sma200_pct": _r(100 * (closes[-1] / s200[-1] - 1)) if s200[-1] else None,
         "ret_5d_pct": _r(100 * pct_return(closes, 5)), "ret_21d_pct": _r(100 * pct_return(closes, 21)),
