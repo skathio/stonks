@@ -1,6 +1,6 @@
 //@version=6
 // ============================================================
-// Momentum Edge — Chart Check (Daily) — 2026-10-29 — v1.2
+// Momentum Edge — Chart Check (Daily) — 2026-10-29 — v1.3
 // Pine Script v6 | Author: skathi | Replaces ME Swing Engine + ME Regime & Quality
 // ============================================================
 // Purpose:   Visual confirmation layer for the daily agent dashboard. Mirrors
@@ -276,7 +276,7 @@ vCaution   = not cRisk or not cStack or not cRs or not hasSetup
 verdict    = vAvoidEma or vAvoidExt or earnSoon or belowStop ? "AVOID" : vCaution ? "CAUTION" : "CONFIRM"
 reason     = vAvoidEma ? "below EMA50" : vAvoidExt ? "extended > 4 ATR" : earnSoon ? "earnings < 4 sessions" : belowStop ? "closed below stop" : not cRisk ? "SPY gate off" : not cStack ? "trend not stacked" : not cRs ? "RS not rising" : not hasSetup ? (cBo ? "breakout on low volume" : "no setup today") : ""
 vColor     = verdict == "CONFIRM" ? C_GOOD : verdict == "AVOID" ? C_BAD : C_WARN
-setupTxt   = cA ? "A squeeze breakout" : cBo ? "b breakout" : cB ? "B pullback reclaim" : cPost ? str.format("post-squeeze ({0} bars)", barsSinceSq[off]) : squeeze[off] ? "in squeeze" : "none"
+setupTxt   = cA ? "A squeeze breakout" : cBo ? "b breakout" : cB ? "B pullback reclaim" : cPost ? str.format("post-squeeze ({0} bar{1})", barsSinceSq[off], barsSinceSq[off] == 1 ? "" : "s") : squeeze[off] ? "in squeeze" : "none"
 header     = isDaily ? str.format("as of {0}", str.format_time(asOfT, "yyyy-MM-dd", syminfo.timezone)) : "ME Check"
 headVal    = not isDaily ? "Daily timeframe required" : pinMissed ? "pin date not on chart: auto" : pinTooOld ? "pin older than 500 bars: auto" : verdict + (reason != "" ? " · " + reason : "")
 headCol    = not isDaily or pinMissed or pinTooOld ? C_WARN : vColor
@@ -285,24 +285,16 @@ earnCol    = earnSoon ? C_BAD : not na(earnSess) and earnSess <= i_horizon ? C_W
 
 panelPos  = i_panelPos == "top_right" ? position.top_right : i_panelPos == "middle_right" ? position.middle_right : i_panelPos == "bottom_right" ? position.bottom_right : i_panelPos == "top_left" ? position.top_left : i_panelPos == "middle_left" ? position.middle_left : position.bottom_left
 panelText = i_panelSize == "tiny" ? size.tiny : i_panelSize == "normal" ? size.normal : size.small
-var table panel = table.new(panelPos, 2, 13, bgcolor=color.new(#171a21, 8), border_width=0, frame_color=color.new(#2a2f3a, 0), frame_width=1)
-f_key(int r, string k) => table.cell(panel, 0, r, k, text_color=color.new(#9aa2b1, 0), text_size=panelText, text_halign=text.align_left)
-f_val(int r, string v, color c) => table.cell(panel, 1, r, v, text_color=c, text_size=panelText, text_halign=text.align_right)
+nRows     = i_compact ? 5 : 13
+var table panel = table.new(panelPos, 2, nRows, bgcolor=color.new(#171a21, 8), border_width=0, frame_color=color.new(#2a2f3a, 0), frame_width=1)
+f_key(int r, string k) => table.cell(panel, 0, math.min(r, nRows - 1), k, text_color=color.new(#9aa2b1, 0), text_size=panelText, text_halign=text.align_left)
+f_val(int r, string v, color c) => table.cell(panel, 1, math.min(r, nRows - 1), v, text_color=c, text_size=panelText, text_halign=text.align_right)
 // Rows render only on the last bar (cheap no-ops elsewhere: empty strings). Compact mode
 // shows rows 0-4 (what you act on) and blanks the context rows 5-12.
 showP = barstate.islast and i_showPanel
 showD = showP and isDaily
 showX = showD and not i_compact
-f_key(0, showP ? header : "")
-f_val(0, showP ? headVal : "", headCol)
-f_key(1, showD ? "Setup" : "")
-f_val(1, showD ? setupTxt : "", cA or cBo or cB ? C_GOOD : C_MUTE)
-f_key(2, showD ? "Volume" : "")
-f_val(2, showD ? str.format("{0,number,#.##}x (need 1.3x)", cVol) : "", f_near(cVol, VOL_SURGE) ? C_WARN : cVol >= VOL_SURGE ? C_GOOD : C_MUTE)
-f_key(3, showD ? "Extension" : "")
-f_val(3, showD ? str.format("{0,number,#.#} ATR vs EMA21", cExt) : "", cExt > MAX_EXT_ATR ? C_BAD : f_near(cExt, MAX_EXT_ATR) ? C_WARN : C_GOOD)
-f_key(4, showD ? "Next earnings" : "")
-f_val(4, showD ? earnTxt : "", earnCol)
+// Context rows first: in compact mode they clamp onto row 4 and are then overwritten.
 f_key(5, showX ? "SPY gate" : "")
 f_val(5, showX ? (cRisk ? "risk-on" : "off") : "", cRisk ? C_GOOD : C_WARN)
 f_key(6, showX ? "Trend stack" : "")
@@ -319,6 +311,16 @@ f_key(11, showX ? "ATR" : "")
 f_val(11, showX ? str.format("{0,number,#.##}% of price", 100 * atr[off] / close[off]) : "", C_MUTE)
 f_key(12, showX ? "Levels" : "")
 f_val(12, showX ? (pinOk ? str.format("pinned · stop {0} ATR", i_stopAtr) : "auto (pin to match dashboard)") : "", pinOk ? C_ACC : C_MUTE)
+f_key(0, showP ? header : "")
+f_val(0, showP ? headVal : "", headCol)
+f_key(1, showD ? "Setup" : "")
+f_val(1, showD ? setupTxt : "", cA or cBo or cB ? C_GOOD : C_MUTE)
+f_key(2, showD ? "Volume" : "")
+f_val(2, showD ? str.format("{0,number,#.##}x (breakout needs 1.3x)", cVol) : "", f_near(cVol, VOL_SURGE) ? C_WARN : cVol >= VOL_SURGE ? C_GOOD : C_MUTE)
+f_key(3, showD ? "Extension" : "")
+f_val(3, showD ? str.format("{0,number,#.#} ATR vs EMA21", cExt) : "", cExt > MAX_EXT_ATR ? C_BAD : f_near(cExt, MAX_EXT_ATR) ? C_WARN : C_GOOD)
+f_key(4, showD ? "Next earnings" : "")
+f_val(4, showD ? earnTxt : "", earnCol)
 
 // ============================================================
 // 8. ALERTS — confirmed bars only, with context
