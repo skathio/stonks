@@ -1,0 +1,336 @@
+//@version=6
+// ============================================================
+// Momentum Edge — Chart Check (Daily) — 2026-10-29 — v1.3
+// Pine Script v6 | Author: skathi | Replaces ME Swing Engine + ME Regime & Quality
+// ============================================================
+// Purpose:   Visual confirmation layer for the daily agent dashboard. Mirrors
+//            pipeline/features.py constant-for-constant (PARITY block) so the chart
+//            agrees with the dashboard on the FACTS, then adds structure the scan
+//            can't read (base box, prior-20 high, 52w high, bar shape).
+//            It adds no independent edge: a CONFIRM means "chart and dashboard agree"
+//            and is not a second opinion on the call.
+// Regime:    US equities daily. Risk-on uptrends: squeeze -> breakout (A / b) and
+//            EMA21 pullback reclaims (B). Breaks in: chop, risk-off tape, earnings
+//            weeks, > 4 ATR extensions. Non-daily timeframes: draws nothing.
+// Repaint:   SPY is a SAME-timeframe read: lookahead_off and NO [1] (a [1] would
+//            compare stock_t with SPY_t-1). Breakout uses ta.highest(high,20)[1].
+//            Markers, squeeze dots and the extension tint draw on confirmed bars only.
+//            The panel scores the last CLOSED session (timenow >= time_close), or a
+//            pinned date, and prints it.
+// Format:    ZERO indentation on purpose. TradingView's mobile editor stacks
+//            indentation on paste, which breaks any indented Pine. So: no multi-line
+//            calls, single-line functions, ternaries instead of if blocks, and no
+//            loops. Keep it that way so the script can be pasted from a phone.
+// ============================================================
+
+indicator(title="Momentum Edge — Chart Check", shorttitle="ME Check", overlay=true, max_bars_back=500, max_lines_count=40, max_labels_count=40, max_boxes_count=4)
+
+// ============================================================
+// 1. PARITY — mirrors pipeline/features.py (constants :21-29)
+// ============================================================
+// Change pipeline/features.py FIRST, then these, in the same PR. These are
+// deliberately NOT inputs: a chart that can be tuned per symbol cannot confirm
+// a universe-wide scan.
+
+const int    ATR_LEN      = 14
+const int    EMA_FAST     = 9
+const int    EMA_MID      = 21
+const int    EMA_BASE     = 50
+const int    MKT_EMA      = 50
+const int    BB_LEN       = 20
+const float  BB_STD       = 2.0
+const float  KC_MULT      = 1.5
+const int    SQZ_RECENCY  = 15
+const int    BREAKOUT_LEN = 20
+const int    PULL_LOOK    = 8
+const int    PULL_SLOPE   = 10
+const float  PULL_TOL_ATR = 0.5
+const float  BODY_ATR     = 0.5
+const int    VOL_MA       = 20
+const float  VOL_SURGE    = 1.3
+const float  MAX_EXT_ATR  = 4.0
+const int    RS_EMA       = 20
+const int    RS_RISING    = 5
+const int    BASE_LEN     = 15
+const int    YEAR_BARS    = 252
+const int    EARN_MIN     = 4       // publish rejects candidates with earnings < 4 sessions away
+const float  NEAR_TIGHT   = 1.0     // post-squeeze counts when the prior-20 high is within 1 ATR
+const int    SMA_MID      = 50
+const int    SMA_LONG     = 200
+const int    SMA_RISE     = 20      // sma200_rising: SMA200 above its value 20 bars ago
+const float  NEAR_52W_ATR = 2.0     // pipeline tag near_52w_high
+const int    PIN_BUFFER   = 499     // max_bars_back - 1: deepest pinnable offset
+const int    DAY_MS       = 86400000
+const string BENCH        = "AMEX:SPY"
+
+// ============================================================
+// 2. INPUTS — dashboard hand-off + display only (none affect signals)
+// ============================================================
+
+i_pinAsOf   = input.bool(false,   "Pin to dashboard date",        group="Dashboard Hand-off", tooltip="Off: score the last closed session. On: score the date below (the dashboard's as_of).")
+i_asOfStr   = input.string("",    "Dashboard as_of (YYYY-MM-DD)", group="Dashboard Hand-off")
+i_stopAtr   = input.float(2.0,    "Stop (ATR)",                   minval=1.0, maxval=4.0,  step=0.25, group="Dashboard Hand-off")
+i_chaseAtr  = input.float(0.5,    "Max chase (ATR)",              minval=0.0, maxval=2.0,  step=0.25, group="Dashboard Hand-off")
+i_tgt1R     = input.float(2.0,    "Target 1 (R, 0 = off)",        minval=0.0, maxval=10.0, step=0.5,  group="Dashboard Hand-off")
+i_tgt2R     = input.float(4.0,    "Target 2 (R, 0 = off)",        minval=0.0, maxval=10.0, step=0.5,  group="Dashboard Hand-off")
+i_horizon   = input.int(20,       "Horizon (sessions)",           minval=5,   maxval=60,               group="Dashboard Hand-off")
+
+i_showEmas  = input.bool(true,    "Show EMA 9/21/50 + SMA200",                                         group="Display")
+i_showStruc = input.bool(true,    "Show structure (prior-20 high, 52w high, base box)",                group="Display")
+i_showLvls  = input.bool(true,    "Show levels (stop / chase / targets)",                              group="Display")
+i_showPanel = input.bool(true,    "Show panel",                                                        group="Display")
+i_nearPct   = input.float(5.0,    "Borderline band (%)",          minval=0.0, maxval=25.0, step=1.0,  group="Display")
+i_markLook  = input.int(120,      "Markers: last N bars (0 = all)", minval=0, maxval=5000,               group="Display")
+i_panelPos  = input.string("bottom_left", "Panel position", options=["top_right", "middle_right", "bottom_right", "top_left", "middle_left", "bottom_left"], group="Panel")
+i_panelSize = input.string("small", "Panel text size", options=["tiny", "small", "normal"],                group="Panel")
+i_compact   = input.bool(true,    "Compact panel (verdict, setup, volume, extension, earnings)",         group="Panel")
+
+// ============================================================
+// 3. FEATURES — one line per features.py definition
+// ============================================================
+
+isDaily  = timeframe.isdaily and timeframe.multiplier == 1
+
+atr      = ta.atr(ATR_LEN)                                  // Wilder, as atr_wilder()
+emaFast  = ta.ema(close, EMA_FAST)
+emaMid   = ta.ema(close, EMA_MID)
+emaBase  = ta.ema(close, EMA_BASE)
+sma50    = ta.sma(close, SMA_MID)
+sma200   = ta.sma(close, SMA_LONG)
+
+// Squeeze: shared SMA20 basis, population stdev, upper band only (features.py:154-158).
+squeeze     = BB_STD * ta.stdev(close, BB_LEN) <= KC_MULT * atr
+barsSinceSq = ta.barssince(squeeze)
+postSqueeze = not na(barsSinceSq) and barsSinceSq <= SQZ_RECENCY - 1     // bars 0..14
+
+prior20High = ta.highest(high, BREAKOUT_LEN)[1]
+breakout    = close > prior20High
+hi52        = ta.highest(high, math.min(YEAR_BARS, bar_index + 1))     // all bars when < 252, as Python
+
+// Pullback reclaim (features.py:167-170). The touch uses the CURRENT ATR for all 8 bars, as Python does.
+ema21Rising  = emaMid > emaMid[PULL_SLOPE]
+touched      = ta.lowest(low - emaMid, PULL_LOOK) <= PULL_TOL_ATR * atr
+reclaimToday = close > emaMid and (close - open) >= BODY_ATR * atr
+pullback     = ema21Rising and touched and reclaimToday and emaMid > emaBase
+
+volMa    = ta.sma(volume, VOL_MA)
+volRatio = volume / volMa
+volSurge = volume >= VOL_SURGE * volMa                     // same form as features.py (boundary-exact)
+
+extAtr       = (close - emaMid) / atr
+extended     = extAtr > MAX_EXT_ATR
+trendStack   = close > emaBase and emaMid > emaBase and (na(sma200) or sma50 > sma200)
+sma200Rising = sma200 > sma200[SMA_RISE]
+dist52Atr    = (hi52 - close) / atr
+priorHiAtr   = (prior20High - close) / atr
+baseHigh     = ta.highest(high, BASE_LEN)
+baseLow      = ta.lowest(low, BASE_LEN)
+baseRangeAtr = (baseHigh - baseLow) / atr
+
+// SPY: SAME-timeframe read, no [1] (pine-v6-patterns §1b). The EMA is computed on SPY's own bars.
+[spyClose, spyEma, spyEma5] = request.security(BENCH, timeframe.period, [close, ta.ema(close, MKT_EMA), ta.ema(close, MKT_EMA)[5]], lookahead=barmerge.lookahead_off)
+riskOn   = spyClose > spyEma and spyEma > spyEma5
+rsLine   = spyClose > 0 ? close / spyClose : na
+rsEma    = ta.ema(rsLine, RS_EMA)
+rsRising = rsEma > rsEma[RS_RISING]
+
+// Setups, exactly as the pipeline's tags (ungated: the gates live in the panel).
+setupA = breakout and postSqueeze
+setupb = breakout and not postSqueeze
+setupB = pullback
+
+// ============================================================
+// 4. AS-OF BAR — which session the panel scores
+// ============================================================
+// Auto: the last bar counts only once its session has ended (timenow >= time_close);
+// before that, score the previous bar. Pinned: the last bar whose date <= the input date.
+
+f_dayKey(int t) => year(t, syminfo.timezone) * 10000 + month(t, syminfo.timezone) * 100 + dayofmonth(t, syminfo.timezone)
+f_part(string s, int i) => str.tonumber(array.get(str.split(str.trim(s), "-"), i))
+f_parseKey(string s) => array.size(str.split(str.trim(s), "-")) == 3 ? int(f_part(s, 0) * 10000 + f_part(s, 1) * 100 + f_part(s, 2)) : na
+
+pinKey = f_parseKey(i_asOfStr)
+pinned = i_pinAsOf and not na(pinKey)
+var int pinIdx = na
+pinIdx := pinned and f_dayKey(time) <= pinKey ? bar_index : pinIdx
+
+liveOff   = barstate.islast and timenow < time_close ? 1 : 0
+pinRaw    = pinned and not na(pinIdx) ? bar_index - pinIdx : na
+pinMissed = pinned and na(pinIdx)                           // pin date before chart history
+pinTooOld = not na(pinRaw) and pinRaw > PIN_BUFFER
+// Never score the forming bar, even when the pin is today or later; never exceed the buffer.
+off       = not na(pinRaw) and not pinTooOld ? math.max(pinRaw, liveOff) : liveOff
+pinOk     = pinned and not pinMissed and not pinTooOld
+
+// ============================================================
+// 5. PLOTS
+// ============================================================
+
+C_GOOD = color.new(#12733a, 0)
+C_WARN = color.new(#b07800, 0)
+C_BAD  = color.new(#b3261e, 0)
+C_MUTE = color.new(#8a919e, 0)
+C_ACC  = color.new(#2456c9, 0)
+C_LINE = color.new(#5f6775, 30)
+
+plot(isDaily and i_showEmas ? emaFast : na, "EMA 9",   color=color.new(#8fa8ff, 0), linewidth=1)
+plot(isDaily and i_showEmas ? emaMid  : na, "EMA 21",  color=C_ACC,                linewidth=2)
+plot(isDaily and i_showEmas ? emaBase : na, "EMA 50",  color=color.new(#e08a00, 0), linewidth=2)
+plot(isDaily and i_showEmas ? sma200  : na, "SMA 200", color=C_MUTE,               linewidth=1)
+plot(isDaily and i_showStruc ? prior20High : na, "Prior 20-bar high", color=C_LINE, style=plot.style_stepline)
+plot(isDaily and i_showStruc ? hi52 : na,        "52-week high",      color=color.new(#12733a, 50), style=plot.style_circles, linewidth=1)
+
+// Markers and squeeze dots: recent bars only (i_markLook).
+recent = i_markLook == 0 or bar_index > last_bar_index - i_markLook
+plotshape(isDaily and barstate.isconfirmed and recent and squeeze, "Squeeze", shape.circle, location.belowbar, color.new(#b07800, 20), size=size.tiny)
+
+// Solid = volume >= 1.3x; faded = below. Grey = trend stack failed on that bar.
+f_markerColor(bool surge, bool stack) => color.new(stack ? C_GOOD : C_MUTE, surge ? 0 : 65)
+
+plotshape(isDaily and barstate.isconfirmed and recent and setupA, "Setup A (squeeze breakout)",     shape.labelup, location.belowbar, f_markerColor(volSurge, trendStack), text="A", textcolor=color.white, size=size.tiny)
+plotshape(isDaily and barstate.isconfirmed and recent and setupb, "Setup b (breakout, no squeeze)", shape.labelup, location.belowbar, f_markerColor(volSurge, trendStack), text="b", textcolor=color.white, size=size.tiny)
+plotshape(isDaily and barstate.isconfirmed and recent and setupB, "Setup B (pullback reclaim)",     shape.labelup, location.belowbar, color.new(trendStack ? C_ACC : C_MUTE, volSurge ? 0 : 65), text="B", textcolor=color.white, size=size.tiny)
+
+bgcolor(isDaily and barstate.isconfirmed and extended ? color.new(#b3261e, 90) : na, title="Extended > 4 ATR")
+
+// Hidden series for alert messages ({{plot("...")}}).
+plot(extAtr,   "Ext ATR",   display=display.none)
+plot(volRatio, "Vol ratio", display=display.none)
+
+// ============================================================
+// 6. AS-OF SNAPSHOT, LEVELS, BASE BOX (last bar only)
+// ============================================================
+// Drawings are created by single-line expressions on the last bar. Pine rolls back
+// objects made on earlier realtime ticks, and max_*_count caps any leftovers.
+
+refClose   = close[off]
+refAtr     = atr[off]
+stopLvl    = refClose - i_stopAtr * refAtr
+riskPts    = refClose - stopLvl
+stopPinned = pinOk ? stopLvl : na
+x1         = bar_index - off
+x2         = bar_index + 8
+drawNow    = isDaily and barstate.islast
+
+bx = drawNow and i_showStruc ? box.new(x1 - (BASE_LEN - 1), baseHigh[off], x1, baseLow[off], border_color=color.new(#5f6775, 40), bgcolor=color.new(#5f6775, 92), text=str.format("base {0,number,#.#} ATR", baseRangeAtr[off]), text_size=size.tiny, text_valign=text.align_top, text_halign=text.align_left, text_color=C_MUTE) : na
+
+f_level(bool show, float p, string name, color c, bool dotted) => show and not na(p) ? line.new(x1, p, x2, p, color=c, style=dotted ? line.style_dotted : line.style_dashed) : na
+f_levelLabel(bool show, float p, string name, color c) => show and not na(p) ? label.new(x2, p, str.format("{0} {1,number,#.##}", name, p), style=label.style_label_left, color=color.new(color.white, 100), textcolor=c, size=size.tiny) : na
+
+showLv = drawNow and i_showLvls
+pRef   = refClose
+pChase = refClose + i_chaseAtr * refAtr
+pT1    = i_tgt1R > 0 ? refClose + i_tgt1R * riskPts : na
+pT2    = i_tgt2R > 0 ? refClose + i_tgt2R * riskPts : na
+l0 = f_level(showLv, pRef,    "ref close", C_MUTE, true)
+l1 = f_level(showLv, pChase,  "buy up to", C_ACC,  false)
+l2 = f_level(showLv, stopLvl, "stop",      C_BAD,  false)
+l3 = f_level(showLv, pT1,     "T1",        C_GOOD, false)
+l4 = f_level(showLv, pT2,     "T2",        C_GOOD, false)
+b0 = f_levelLabel(showLv, pRef,    "ref close", C_MUTE)
+b1 = f_levelLabel(showLv, pChase,  "buy up to", C_ACC)
+b2 = f_levelLabel(showLv, stopLvl, "stop " + str.tostring(i_stopAtr) + " ATR", C_BAD)
+b3 = f_levelLabel(showLv, pT1,     str.tostring(i_tgt1R) + "R", C_GOOD)
+b4 = f_levelLabel(showLv, pT2,     str.tostring(i_tgt2R) + "R", C_GOOD)
+// Horizon marker: the last session of the hold.
+lh = showLv ? line.new(x1 + i_horizon, refClose - 0.5 * refAtr, x1 + i_horizon, refClose + 0.5 * refAtr, color=C_LINE, width=2) : na
+
+// ============================================================
+// 7. PANEL — scores the as-of bar, prints its date
+// ============================================================
+
+// Weekdays in (a, b] on calendar dates in the exchange timezone, exactly as
+// daily.weekdays_between() (holidays ignored). No loop: full weeks give 5 each, and
+// the remainder comes from WD[monIndex * 7 + remDays], checked against the Python.
+var WD = array.from(0,1,2,3,4,4,4, 0,1,2,3,3,3,4, 0,1,2,2,2,3,4, 0,1,1,1,2,3,4, 0,0,0,1,2,3,4, 0,0,1,2,3,4,5, 0,1,2,3,4,5,5)
+f_dayStart(int t) => timestamp(syminfo.timezone, year(t, syminfo.timezone), month(t, syminfo.timezone), dayofmonth(t, syminfo.timezone), 0, 0)
+f_days(int a, int b) => int(math.round((f_dayStart(b) - f_dayStart(a)) / DAY_MS))
+f_monIdx(int t) => (dayofweek(t, syminfo.timezone) + 5) % 7
+f_weekdaysBetween(int a, int b) => f_days(a, b) <= 0 ? 0 : 5 * int(f_days(a, b) / 7) + array.get(WD, f_monIdx(a) * 7 + f_days(a, b) % 7)
+
+f_near(float v, float thr) => not na(v) and thr != 0 and math.abs(v - thr) / math.abs(thr) * 100.0 <= i_nearPct
+
+asOfT    = time[off]
+earnT    = earnings.future_time
+earnSess = na(earnT) ? na : f_weekdaysBetween(asOfT, int(earnT))
+earnSoon = not na(earnSess) and earnSess < EARN_MIN
+cRisk    = riskOn[off]
+cStack   = trendStack[off]
+cRs      = rsRising[off]
+cExt     = extAtr[off]
+cVol     = volRatio[off]
+cA       = setupA[off]
+cB       = setupB[off]
+cBo      = breakout[off]
+cPost    = postSqueeze[off]
+cPrHi    = priorHiAtr[off]
+cSurge   = volSurge[off]
+// A breakout needs volume; post-squeeze only counts BEFORE the breakout (coiled under the high).
+hasSetup  = (cBo and cSurge) or cB or (not cBo and cPost and cPrHi <= NEAR_TIGHT)
+closedC   = close[liveOff]                               // last closed session, never the forming bar
+belowStop = pinOk and closedC < stopPinned
+
+vAvoidEma  = close[off] < emaBase[off]
+vAvoidExt  = cExt > MAX_EXT_ATR
+vCaution   = not cRisk or not cStack or not cRs or not hasSetup
+verdict    = vAvoidEma or vAvoidExt or earnSoon or belowStop ? "AVOID" : vCaution ? "CAUTION" : "CONFIRM"
+reason     = vAvoidEma ? "below EMA50" : vAvoidExt ? "extended > 4 ATR" : earnSoon ? "earnings < 4 sessions" : belowStop ? "closed below stop" : not cRisk ? "SPY gate off" : not cStack ? "trend not stacked" : not cRs ? "RS not rising" : not hasSetup ? (cBo ? "breakout on low volume" : "no setup today") : ""
+vColor     = verdict == "CONFIRM" ? C_GOOD : verdict == "AVOID" ? C_BAD : C_WARN
+setupTxt   = cA ? "A squeeze breakout" : cBo ? "b breakout" : cB ? "B pullback reclaim" : cPost ? str.format("post-squeeze ({0} bar{1})", barsSinceSq[off], barsSinceSq[off] == 1 ? "" : "s") : squeeze[off] ? "in squeeze" : "none"
+header     = isDaily ? str.format("as of {0}", str.format_time(asOfT, "yyyy-MM-dd", syminfo.timezone)) : "ME Check"
+headVal    = not isDaily ? "Daily timeframe required" : pinMissed ? "pin date not on chart: auto" : pinTooOld ? "pin older than 500 bars: auto" : verdict + (reason != "" ? " · " + reason : "")
+headCol    = not isDaily or pinMissed or pinTooOld ? C_WARN : vColor
+earnTxt    = na(earnSess) ? "no date (TV)" : str.format("{0} · ~{1} sess (TV, from today)", str.format_time(int(earnT), "MMM d", syminfo.timezone), earnSess)
+earnCol    = earnSoon ? C_BAD : not na(earnSess) and earnSess <= i_horizon ? C_WARN : C_MUTE
+
+panelPos  = i_panelPos == "top_right" ? position.top_right : i_panelPos == "middle_right" ? position.middle_right : i_panelPos == "bottom_right" ? position.bottom_right : i_panelPos == "top_left" ? position.top_left : i_panelPos == "middle_left" ? position.middle_left : position.bottom_left
+panelText = i_panelSize == "tiny" ? size.tiny : i_panelSize == "normal" ? size.normal : size.small
+nRows     = i_compact ? 5 : 13
+var table panel = table.new(panelPos, 2, nRows, bgcolor=color.new(#171a21, 8), border_width=0, frame_color=color.new(#2a2f3a, 0), frame_width=1)
+f_key(int r, string k) => table.cell(panel, 0, math.min(r, nRows - 1), k, text_color=color.new(#9aa2b1, 0), text_size=panelText, text_halign=text.align_left)
+f_val(int r, string v, color c) => table.cell(panel, 1, math.min(r, nRows - 1), v, text_color=c, text_size=panelText, text_halign=text.align_right)
+// Rows render only on the last bar (cheap no-ops elsewhere: empty strings). Compact mode
+// shows rows 0-4 (what you act on) and blanks the context rows 5-12.
+showP = barstate.islast and i_showPanel
+showD = showP and isDaily
+showX = showD and not i_compact
+// Context rows first: in compact mode they clamp onto row 4 and are then overwritten.
+f_key(5, showX ? "SPY gate" : "")
+f_val(5, showX ? (cRisk ? "risk-on" : "off") : "", cRisk ? C_GOOD : C_WARN)
+f_key(6, showX ? "Trend stack" : "")
+f_val(6, showX ? (cStack ? "yes" : "no") + (sma200Rising[off] ? " · 200d rising" : " · 200d flat") : "", cStack ? C_GOOD : C_WARN)
+f_key(7, showX ? "RS vs SPY" : "")
+f_val(7, showX ? (cRs ? "rising" : "not rising") : "", cRs ? C_GOOD : C_WARN)
+f_key(8, showX ? "To prior-20 high" : "")
+f_val(8, showX ? str.format("{0,number,#.##} ATR", cPrHi) : "", cPrHi <= NEAR_TIGHT ? C_GOOD : C_MUTE)
+f_key(9, showX ? "To 52w high" : "")
+f_val(9, showX ? str.format("{0,number,#.#} ATR", dist52Atr[off]) : "", dist52Atr[off] <= NEAR_52W_ATR ? C_GOOD : C_MUTE)
+f_key(10, showX ? "Base (15d)" : "")
+f_val(10, showX ? str.format("{0,number,#.#} ATR range", baseRangeAtr[off]) : "", C_MUTE)
+f_key(11, showX ? "ATR" : "")
+f_val(11, showX ? str.format("{0,number,#.##}% of price", 100 * atr[off] / close[off]) : "", C_MUTE)
+f_key(12, showX ? "Levels" : "")
+f_val(12, showX ? (pinOk ? str.format("pinned · stop {0} ATR", i_stopAtr) : "auto (pin to match dashboard)") : "", pinOk ? C_ACC : C_MUTE)
+f_key(0, showP ? header : "")
+f_val(0, showP ? headVal : "", headCol)
+f_key(1, showD ? "Setup" : "")
+f_val(1, showD ? setupTxt : "", cA or cBo or cB ? C_GOOD : C_MUTE)
+f_key(2, showD ? "Volume" : "")
+f_val(2, showD ? str.format("{0,number,#.##}x (breakout needs 1.3x)", cVol) : "", f_near(cVol, VOL_SURGE) ? C_WARN : cVol >= VOL_SURGE ? C_GOOD : C_MUTE)
+f_key(3, showD ? "Extension" : "")
+f_val(3, showD ? str.format("{0,number,#.#} ATR vs EMA21", cExt) : "", cExt > MAX_EXT_ATR ? C_BAD : f_near(cExt, MAX_EXT_ATR) ? C_WARN : C_GOOD)
+f_key(4, showD ? "Next earnings" : "")
+f_val(4, showD ? earnTxt : "", earnCol)
+
+// ============================================================
+// 8. ALERTS — confirmed bars only, with context
+// ============================================================
+// Setup alerts carry the same context the panel CONFIRM needs: SPY gate and trend stack
+// not extended; an A also needs volume. The raw markers stay on the chart either way.
+
+avoidCore = close < emaBase or extended
+ctxOk     = riskOn and trendStack and not extended
+alertcondition(isDaily and barstate.isconfirmed and setupA and volSurge and ctxOk, title="ME Check: A squeeze breakout (in context)", message='{{ticker}} A squeeze breakout @ {{close}} | ext {{plot("Ext ATR")}} ATR | vol x{{plot("Vol ratio")}}')
+alertcondition(isDaily and barstate.isconfirmed and setupB and ctxOk, title="ME Check: B pullback reclaim (in context)", message='{{ticker}} B pullback reclaim @ {{close}} | ext {{plot("Ext ATR")}} ATR | vol x{{plot("Vol ratio")}}')
+alertcondition(isDaily and barstate.isconfirmed and not na(stopPinned) and close < stopPinned, title="ME Check: close below pinned stop", message="{{ticker}} CLOSED {{close}} below the pinned dashboard stop (close-based, like the dashboard's invalidation)")
+alertcondition(isDaily and barstate.isconfirmed and avoidCore and not avoidCore[1], title="ME Check: turned AVOID", message="{{ticker}} turned AVOID @ {{close}} (below EMA50 or > 4 ATR extended)")

@@ -18,6 +18,7 @@ You are a strict, skeptical Pine v6 reviewer for this repo. You do not modify co
 ## 1. Repainting
 
 - All `request.security(...)` calls explicitly pass `lookahead=barmerge.lookahead_off`.
+- Same-timeframe cross-symbol reads (e.g. `request.security(bench, timeframe.period, close[1], ...)`) must **not** shift by `[1]`: that compares today's bar with the other symbol's prior bar. Flag as Major (silent misalignment).
 - `ta.pivothigh` / `ta.pivotlow` results are offset by their length when plotted/labeled (otherwise they appear "live" but are confirmed `len` bars late).
 - No future-referencing series (negative-index lookups like `close[-n]`).
 - Signal calculations on the current bar either gate on `barstate.isconfirmed`, use the prior bar's value, or are explicitly documented as "intrabar alert" in the header.

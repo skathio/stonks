@@ -1,0 +1,43 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <title>Stonks</title>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#1c2256"/>
+      <stop offset="1" stop-color="#4a1d78"/>
+    </linearGradient>
+    <linearGradient id="gemL" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#e6fbff"/>
+      <stop offset="1" stop-color="#5fd3f3"/>
+    </linearGradient>
+    <linearGradient id="gemR" x1="1" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#7fe3ff"/>
+      <stop offset="1" stop-color="#1f8fd1"/>
+    </linearGradient>
+    <linearGradient id="flame" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#fff3a1"/>
+      <stop offset="0.45" stop-color="#ffb020"/>
+      <stop offset="1" stop-color="#ff4d2e"/>
+    </linearGradient>
+  </defs>
+  <rect width="64" height="64" rx="14" fill="url(#bg)"/>
+  <!-- stars -->
+  <circle cx="12" cy="14" r="1.2" fill="#fff" opacity=".8"/>
+  <circle cx="52" cy="11" r="1" fill="#fff" opacity=".7"/>
+  <circle cx="54" cy="40" r="1.1" fill="#fff" opacity=".6"/>
+  <circle cx="9" cy="42" r=".9" fill="#fff" opacity=".6"/>
+  <!-- exhaust flame -->
+  <path d="M32 61c-5-4-7.5-8-7.5-12h15c0 4-2.5 8-7.5 12z" fill="url(#flame)"/>
+  <!-- fins (green: up only) -->
+  <path d="M19.5 34 13 46l9-2.5z" fill="#2fd27a"/>
+  <path d="M44.5 34 51 46l-9-2.5z" fill="#1fae62"/>
+  <!-- diamond body: crown facets on top, pavilion below -->
+  <path d="M32 5 19 27h26z" fill="url(#gemL)"/>
+  <path d="M32 5 45 27h-6.5z" fill="url(#gemR)" opacity=".9"/>
+  <path d="M19 27h26l-4 18H23z" fill="url(#gemR)"/>
+  <path d="M19 27h9l4 18h-9z" fill="url(#gemL)" opacity=".85"/>
+  <path d="M32 5 28 27M32 5l4 22M28 27l4 18 4-18" stroke="#0e3f6b" stroke-width="1" fill="none" opacity=".45"/>
+  <!-- window -->
+  <circle cx="32" cy="22" r="3.6" fill="#1c2256" stroke="#e6fbff" stroke-width="1.6"/>
+  <!-- sparkle -->
+  <path d="M24 12l1 2.4 2.4 1-2.4 1-1 2.4-1-2.4-2.4-1 2.4-1z" fill="#fff"/>
+</svg>

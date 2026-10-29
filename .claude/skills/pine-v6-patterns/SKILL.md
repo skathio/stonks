@@ -27,6 +27,30 @@ Wrong:
 htfClose = request.security(syminfo.tickerid, "D", close)
 ```
 
+### 1b. Same-timeframe, other symbol: do NOT add `[1]`
+
+The `[1]` rule above is for a timeframe **higher** than the chart's. For another symbol
+on the **same** timeframe (e.g. daily SPY on a daily stock chart), `[1]` shifts the other
+series back one bar, so you compare today's stock with yesterday's benchmark. That is a
+silent misalignment, not extra safety. (It caused the RS-vs-SPY bug in the original
+Momentum Edge scripts.)
+
+```pine
+// Same TF: aligned bar-for-bar, no lookahead. Confirmation comes from scoring
+// closed bars (barstate.isconfirmed / evaluating [1] for the whole condition).
+spyClose = request.security(i_bench, timeframe.period, close, lookahead=barmerge.lookahead_off)
+rsRatio  = close / spyClose
+```
+
+Wrong:
+```pine
+// Today's stock close divided by YESTERDAY's SPY close: RS is off by a day.
+spyClose = request.security(i_bench, timeframe.period, close[1], lookahead=barmerge.lookahead_off)
+```
+
+When a script supports both (the user may load it on an intraday chart and request daily
+data), decide per request: `[1]` only when `timeframe.in_seconds(tf) > timeframe.in_seconds()`.
+
 ---
 
 ## 2. No-repaint pivots
@@ -175,7 +199,8 @@ Use the same banner format the existing scripts use. Number sections when there 
 
 ## 10. Defensive request.security with helper
 
-If you have multiple HTF reads, wrap the pattern in a helper to make it impossible to forget `lookahead_off`:
+If you have multiple **higher-timeframe** reads, wrap the pattern in a helper to make it impossible to forget `lookahead_off`.
+Don't route same-timeframe cross-symbol reads through it (see §1b):
 
 ```pine
 f_secureHtf(sym, tf, src) =>

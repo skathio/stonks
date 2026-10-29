@@ -58,6 +58,7 @@ Skip stages only when the task is purely cosmetic (renaming a group label, fixin
 
 ### No-Repaint Patterns
 - **Higher-timeframe data**: `request.security(sym, tf, expr, lookahead=barmerge.lookahead_off)` and reference `[1]` if the value must be confirmed.
+- **Same-timeframe, other symbol** (e.g. daily SPY on a daily chart): `lookahead_off` but **no `[1]`**. `[1]` there misaligns the series by a bar. Confirm by scoring closed bars instead.
 - **Pivots**: `ta.pivothigh` / `ta.pivotlow` confirm `len` bars later — never plot them as if they're live. Offset labels by `-len`.
 - **Signals**: a signal that flips on the current bar before close is fine for alerts, but any backtest claim must use `barstate.isconfirmed` or the prior bar's value.
 - Never use `security` without specifying `lookahead`. The default has bitten people.
@@ -104,10 +105,8 @@ If the user asks for any of these, **flag the issue and propose the sound altern
 
 ```
 indicators/                       Pine v6 source (`.pine`) + public-facing companion docs (`.md`)
-  momentum-edge-engine.pine
-  momentum-edge-engine.md         High-level usage doc — public-safe, no edge IP.
-  momentum-edge-regime.pine
-  momentum-edge-regime.md
+  momentum-edge-chart-check.pine  Daily confirmation overlay; PARITY block mirrors pipeline/features.py.
+  momentum-edge-chart-check.md    High-level usage doc — public-safe, no edge IP.
 notes/                            Private research notes — gitignored except TEMPLATE.md
   TEMPLATE.md                     Blank research-note template (tracked).
   <slug>.md                       Per-indicator deep notes (gitignored — local only).

@@ -1,81 +1,50 @@
 # Momentum Edge
 
-A paired two-indicator system for **daily US-equity swing trades** built in TradingView PineScript v6. The system hunts momentum-continuation setups — breakouts from volatility contractions and pullbacks to rising MAs — targeting multi-week moves of 20–30%.
+A **daily US-equity swing-trading** toolkit for momentum continuation: breakouts from volatility
+contractions and pullbacks to rising averages, aimed at multi-week moves. It has two parts:
 
-> **Disclaimer:** These are indicators, not financial advice. They do not place orders. Past simulated performance is not indicative of future results.
+1. **A daily scan dashboard.** A scheduled agent analyses the S&P 500 + 400 every morning and
+   publishes candidates with ATR-based levels (see [Daily scan dashboard](#daily-scan-dashboard)).
+2. **A TradingView indicator, Momentum Edge — Chart Check.** You open a flagged stock and the
+   chart confirms or contradicts the call at a glance.
+
+> **Disclaimer:** These are research tools, not financial advice. Nothing here places orders.
 
 ---
 
-## How it works
+## Chart Check indicator
 
-The system is split across two indicators that run side by side:
+One daily overlay ([`indicators/momentum-edge-chart-check.pine`](indicators/momentum-edge-chart-check.pine), [docs](indicators/momentum-edge-chart-check.md)):
 
-| | Indicator | Role |
-|---|---|---|
-| 1 | **Momentum Edge — Swing Engine** | Entry signals, adaptive stop/target levels, on-chart trade journal |
-| 2 | **Momentum Edge — Regime & Quality** | Environment confirmation — CONFIRM / CAUTION / AVOID verdict |
+- **Setup markers:** **A** squeeze breakout, **b** breakout without a squeeze, **B** pullback
+  reclaim. Solid when volume confirms; grey when the trend isn't stacked.
+- **Structure:** EMA 9/21/50 and SMA200, the prior-20-bar high, the 52-week high, the 15-bar base
+  box, and an extension tint above 4 ATR.
+- **Levels:** stop, buy-up-to limit and R-multiple targets. Type in a dashboard pick's values and
+  the lines match its prices.
+- **Panel:** CONFIRM / CAUTION / AVOID for the scored session (its date is printed), with the
+  SPY gate, trend, relative strength, setup, volume, extension and earnings rows.
 
-The **Engine** answers *when to enter*. The **Regime & Quality** panel answers *whether the environment supports acting*. You use both together.
+Its definitions are fixed to match the dashboard's feature calculations exactly, so the chart and
+the dashboard always agree on the facts.
 
-### Swing Engine (Indicator 1)
+### Setup
 
-Two continuation setups, both requiring a risk-on benchmark + an established uptrend + RS leadership + volume participation:
+TradingView doesn't import files, so:
 
-- **Mode A — Breakout:** price clears the prior N-bar high after a volatility squeeze (BB inside KC).
-- **Mode B — Pullback:** price pulls back to a rising mid-EMA and reclaims with a strong body.
+1. Open `indicators/momentum-edge-chart-check.pine` and copy its contents.
+2. In TradingView open the **Pine Editor**, paste, and click **Add to chart**. Use a **daily** chart.
 
-A 3-cluster **k-means on ATR%** ("adaptive SuperTrend") labels the current volatility regime and adjusts the trailing-stop width accordingly. An optional TP1 partial de-risks the trade; the remainder rides the adaptive trail. The on-chart dashboard shows the live position state and a cumulative trade journal (win %, profit factor, expectancy, total return, max drawdown) with commission and slippage applied.
+### Alerts
 
-### Regime & Quality Panel (Indicator 2)
-
-Six orthogonal axes feed a single CONFIRM / CAUTION / AVOID verdict:
-
-| Axis | What it measures |
+| Alert | Fires when |
 |---|---|
-| Market / breadth | Benchmark above its rising trend EMA |
-| Relative strength | Stock leading the benchmark (+ optional sector proxy) |
-| Volatility regime | k-means ATR% cluster + squeeze state |
-| Base / extension | Distance from anchor EMA in ATR units |
-| Volume / accumulation | OBV trend |
-| Forward-odds model | Walk-forward validated logistic model (AUC 0.629, enabled by default) |
+| `A squeeze breakout (in context)` | A breakout on volume, with the SPY gate on, the trend stacked and not extended |
+| `B pullback reclaim (in context)` | A pullback reclaim, with the SPY gate on, the trend stacked and not extended |
+| `close below pinned stop` | The session closes below the dashboard stop you pinned |
+| `turned AVOID` | Price drops below EMA50 or extends past 4 ATR |
 
-The forward-odds axis produces a **relative rank (0–100)**, not a calibrated probability. It can only withhold a CONFIRM — it never forces an AVOID. Toggle it off via the `Enable Axis 6` input to use the five on-chart axes alone.
-
----
-
-## Setup
-
-Both files use the `.pine` extension and live in `indicators/`. TradingView does not support direct file import, so:
-
-1. Open `indicators/momentum-edge-engine.pine` in your editor.
-2. Copy the full contents.
-3. In TradingView, open the **Pine Editor**, paste, and click **Add to chart**.
-4. Repeat for `indicators/momentum-edge-regime.pine` — add it as a **separate pane** below the price chart.
-
-That's it. Defaults are calibrated for daily US equities; no per-symbol tuning is needed or recommended.
-
----
-
-## Compatibility
-
-- **Timeframe:** Daily. The k-means training window and ATR calibration assume daily bars.
-- **Instruments:** Liquid US single-name equities. The default benchmark is SPY; change `Benchmark Symbol` for other universes.
-- **Pine version:** v6.
-- **TradingView plan:** Any plan that allows two active indicators.
-
----
-
-## Alerts
-
-| Indicator | Alert | Fires when |
-|---|---|---|
-| Engine | `LONG ENTRY` | Entry signal confirmed at bar close |
-| Engine | `TP1 HIT` | First target reached |
-| Engine | `EXIT` | Trail stop or trend break exit |
-| Regime | `Regime CONFIRM` | Verdict first transitions to CONFIRM |
-| Regime | `Regime AVOID` | Verdict first transitions to AVOID |
-
-All alerts fire on confirmed bar close — no intrabar triggers.
+All alerts fire on the bar close.
 
 ---
 
@@ -83,10 +52,8 @@ All alerts fire on confirmed bar close — no intrabar triggers.
 
 ```
 indicators/
-  momentum-edge-engine.pine     Signal engine — overlay on price chart
-  momentum-edge-engine.md       Usage, inputs, compatibility
-  momentum-edge-regime.pine     Regime & quality panel — separate pane
-  momentum-edge-regime.md       Usage, inputs, compatibility
+  momentum-edge-chart-check.pine  Chart Check — daily overlay (markers, structure, levels, panel)
+  momentum-edge-chart-check.md    Usage, inputs, compatibility
 notes/
   TEMPLATE.md                   Research-note template
 pipeline/                       Daily agent data pipeline (stdlib Python)
