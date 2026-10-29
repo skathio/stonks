@@ -25,6 +25,9 @@ NASDAQ_AHEAD_WEEKDAYS = 10
 NEWS_LOOKBACK_DAYS = 10
 FILINGS_LOOKBACK_DAYS = 30
 MAX_ENRICH = 40
+# A report this close can gap straight through any ATR stop; the prompt says
+# not to list such names, and publish enforces it.
+MIN_EARNINGS_SESSIONS = 4
 FRED_SERIES = {"vix": "VIXCLS", "hy_oas": "BAMLH0A0HYM2", "ust10y": "DGS10", "curve_10y2y": "T10Y2Y"}
 CSV_COLUMNS = ("ticker", "name", "sector", "index", "eligible", "close", "atr_pct", "chg_1d_pct",
                "ret_5d_pct", "ret_21d_pct", "ret_63d_pct", "ret_126d_pct", "rs_rank", "rs_rising",
@@ -166,6 +169,10 @@ def prepare(root, update_history=True):
         "benchmarks": benchmarks, "sectors": sectors, "breadth": breadth, "macro": macro,
         "baseline_regime": feat_mod.baseline_regime(benchmarks["SPY"], breadth, vix),
         "tag_counts": _tag_counts(feats),
+        "data_quality": {
+            "history_break_truncated": sorted(t for t, f in feats.items() if f.get("history_break")),
+            "excluded_short_or_broken_history": sorted(set(scan) - set(feats)),
+        },
         "earnings_coverage": {"with_next_date": sum(1 for e in earnings.values() if e["next"]),
                               "conflicts": sorted(t for t, e in earnings.items() if e["next"] and e["next"]["conflict"])},
     }
@@ -274,6 +281,10 @@ def publish(root, as_of=None, encrypt=True):
                                                "pct_off_52wh", "atr_pct", "ret_21d_pct", "ret_63d_pct", "vol_ratio",
                                                "adv20_usd_m", "bars_since_squeeze", "tags")}
         nxt = (earnings.get(c["ticker"]) or {}).get("next")
+        if nxt and nxt["sessions_away"] < MIN_EARNINGS_SESSIONS:
+            raise analysis_mod.AnalysisError(
+                f"{c['ticker']}: earnings {nxt['date']} are {nxt['sessions_away']} session(s) away; "
+                f"candidates need >= {MIN_EARNINGS_SESSIONS} (move it to the watchlist)")
         c["earnings"] = nxt
         c["earnings_inside_horizon"] = bool(nxt and nxt["sessions_away"] <= c["horizon_sessions"])
         c["news"] = [n for n in (enriched.get(c["ticker"], {}).get("news") or [])[:5] if n.get("url", "").startswith("https://")]

@@ -173,13 +173,18 @@ def refresh_splits(data_dir, lookback_days=10):
     days = stored_days(data_dir)
     if not days:
         return 0
-    since = days[0]
-    if meta.get("splits_refreshed_through"):
-        since = max(since, dt.date.fromisoformat(meta["splits_refreshed_through"]) - dt.timedelta(days=lookback_days))
+    # A backfill can extend history *backwards* past what the ledger covers,
+    # so track coverage at both ends, not just the last refresh.
+    covered_from = meta.get("splits_covered_from")
+    if not covered_from or dt.date.fromisoformat(covered_from) > days[0] or not meta.get("splits_refreshed_through"):
+        since = days[0]
+    else:
+        since = dt.date.fromisoformat(meta["splits_refreshed_through"]) - dt.timedelta(days=lookback_days)
     before = len(ledger)
     for split in sources.massive_splits(since):
         ledger[(split["ticker"], split["execution_date"])] = split
     write_json(paths["splits"], sorted(ledger.values(), key=lambda s: (s["execution_date"], s["ticker"])))
+    meta["splits_covered_from"] = min(since, dt.date.fromisoformat(covered_from)).isoformat() if covered_from else since.isoformat()
     meta["splits_refreshed_through"] = days[-1].isoformat()
     write_json(paths["meta"], meta)
     return len(ledger) - before
