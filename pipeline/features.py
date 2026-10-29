@@ -27,6 +27,10 @@ PULL_LOOK, PULL_SLOPE, PULL_TOL_ATR, BODY_ATR = 8, 10, 0.5, 0.5
 VOL_MA, VOL_SURGE = 20, 1.3
 MAX_EXT_ATR = 4.0
 RS_EMA, RS_RISING = 20, 5
+# A one-day close-to-close move this large in an S&P 900 name, after split
+# adjustment, is almost always a ticker re-use (e.g. BNY was a closed-end fund
+# before BNY Mellon took the symbol) or a bad print, not a real move.
+HISTORY_BREAK_MOVE = 0.60
 
 
 # =============================================================================
@@ -96,6 +100,18 @@ def percentile_ranks(values):
     return {k: round(100.0 * i / (n - 1), 1) if n > 1 else 50.0 for i, (_, k) in enumerate(items)}
 
 
+def history_break(bars):
+    """Index into `bars` after the last implausible jump, or 0 if the series is continuous."""
+    prev, cut = None, 0
+    for i, b in enumerate(bars):
+        if b is None:
+            continue
+        if prev is not None and prev > 0 and abs(b[3] / prev - 1) > HISTORY_BREAK_MOVE:
+            cut = i
+        prev = b[3]
+    return cut
+
+
 def _clean(bars):
     """Drop days with no bar (halts / pre-listing). Returns aligned lists."""
     rows = [b for b in bars if b is not None]
@@ -118,6 +134,9 @@ def ticker_features(bars, spy_closes_by_day, days):
     """
     if bars[-1] is None:
         return None  # no bar on the latest session (halted / delisted)
+    cut = history_break(bars)
+    if cut:
+        bars, days = bars[cut:], days[cut:]
     present_days = [d for d, b in zip(days, bars) if b is not None]
     opens, highs, lows, closes, vols = _clean(bars)
     n = len(closes)
@@ -198,6 +217,7 @@ def ticker_features(bars, spy_closes_by_day, days):
         "rs_rising": rs_rising,
         "tags": tags,
         "eligible": close >= MIN_PRICE and adv_usd >= MIN_ADV_USD,
+        "history_break": bool(cut),
         "_rs_composite": _rs_composite(closes),
         "_sma50": s50[-1], "_sma200": s200[-1], "_ema21": e21[-1], "_ema50": e50[-1],
         "_hi252": hi252, "_lo252": lo252, "_high": highs[-1], "_low": lows[-1],

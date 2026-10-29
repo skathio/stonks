@@ -184,3 +184,18 @@ class LedgerFills(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class HistoryBreak(unittest.TestCase):
+    def test_ticker_reuse_is_cut(self):
+        bars = [(10, 10, 10, 10, 1)] * 5 + [None] + [(150, 151, 149, 150, 1)] * 3
+        self.assertEqual(features.history_break(bars), 6)
+
+    def test_continuous_series_is_untouched(self):
+        bars = [(100, 101, 99, 100 + i, 1) for i in range(10)]
+        self.assertEqual(features.history_break(bars), 0)
+
+    def test_short_history_after_break_is_excluded(self):
+        days = days_from(dt.date(2025, 1, 1), 260)
+        bars = [(10.0, 10.1, 9.9, 10.0, 5e6)] * 100 + [(150.0, 151.0, 149.0, 150.0, 5e6)] * 160
+        self.assertIsNone(features.ticker_features(bars, {}, days))
