@@ -1,14 +1,19 @@
 #!/usr/bin/env node
 // =============================================================================
-// Build the static dashboard: copy site/ to dist/ (the hashira pages-upload
-// autodetect target). The payload in site/data is already encrypted, so no
-// plaintext ever reaches dist/. The build refuses to run if it finds anything
-// that isn't an encryption envelope.
+// Build the dashboard: Vite bundles the React app from site/ into dist/, then
+// the encrypted payload is copied to dist/data.
+//
+// The build refuses to run if the payload contains anything that isn't an
+// encryption envelope, so plaintext can never be published.
+//
+//   node tools/build.mjs [--data <dir>]   (default: site/data)
 // =============================================================================
-import { cp, readdir, readFile, rm } from "node:fs/promises";
+import { cp, readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
+import { build } from "vite";
 
-const SRC = "site";
+const args = process.argv.slice(2);
+const DATA = args[0] === "--data" ? args[1] : join("site", "data");
 const DST = "dist";
 
 async function assertEncrypted(dir) {
@@ -34,7 +39,7 @@ async function assertEncrypted(dir) {
   return count;
 }
 
-const files = await assertEncrypted(join(SRC, "data"));
-await rm(DST, { recursive: true, force: true });
-await cp(SRC, DST, { recursive: true });
-console.log(`build: ${SRC}/ -> ${DST}/ (${files} encrypted data files)`);
+const files = await assertEncrypted(DATA);
+await build({ configFile: "vite.config.js", logLevel: "warn" });
+if (files) await cp(DATA, join(DST, "data"), { recursive: true });
+console.log(`build: dist/ (${files} encrypted data files from ${DATA})`);

@@ -116,8 +116,8 @@ data/                             Historical OHLCV CSVs (gitignored — local on
 scripts/                          Python training / backtest harness (gitignored — local only).
 results/                          Backtest & training output (gitignored — local only).
 pipeline/                         Daily agent data pipeline (stdlib Python): history, features, enrich, publish, ledger.
-site/                             Encrypted dashboard (static; GitHub Pages via hashira). site/data/ = ciphertext only.
-tools/                            Node build + payload encryption (tools/encrypt-dashboard.mjs).
+site/                             Dashboard: React + Tailwind (Vite) in site/src; site/data/ = ciphertext only. Pages via hashira.
+tools/                            build.mjs (plaintext guard + Vite build) and encrypt-dashboard.mjs.
 tests/                            Python (test_*.py) and Node (*.test.mjs) tests.
 agent/ROUTINE.md                  How the daily cloud routine is wired (prompt, environment, flow).
 spike/                            Feasibility spikes (kept as a record).

@@ -57,5 +57,6 @@ python3 -m pipeline.cli prepare
 python3 -m pipeline.cli enrich NVDA,AVGO
 python3 -m pipeline.cli publish --no-encrypt   # validate + ledger without touching site/
 python3 -m unittest discover -s tests -p 'test_*.py'
-npm test && npm run build
+npm ci && npm test && npm run build   # React + Tailwind via Vite
+npm run dev                           # live preview (needs site/data ciphertext + unlock link)
 ```

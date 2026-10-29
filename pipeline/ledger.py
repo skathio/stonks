@@ -134,4 +134,4 @@ def stats(picks):
     return {"all": summarize(picks),
             "by_conviction": {k: v for k, v in by_conviction.items() if v["picks"]},
             "by_setup": {k: summarize(v) for k, v in sorted(by_setup.items())},
-            "cost_assumption": "0.10% commission + 0.10% slippage round trip, next-session-open entry"}
+            "cost_assumption": "Costs: 0.10% commission + 0.10% slippage round trip"}

@@ -2,27 +2,18 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="robots" content="noindex, nofollow">
+  <meta name="theme-color" content="#f4f5f7" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#0e1014" media="(prefers-color-scheme: dark)">
   <meta http-equiv="Content-Security-Policy"
         content="default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; base-uri 'none'; form-action 'none'">
   <meta name="referrer" content="no-referrer">
+  <link rel="icon" href="data:,">
   <title>Stonks Daily Scan</title>
-  <link rel="stylesheet" href="css/app.css">
-  <script type="module" src="js/app.js"></script>
 </head>
 <body>
-  <header class="top">
-    <div>
-      <h1>Stonks Daily Scan</h1>
-      <p id="asof" class="muted"></p>
-    </div>
-    <nav id="nav" hidden></nav>
-  </header>
-  <main id="main"><p class="muted">Loading…</p></main>
-  <footer class="muted">
-    Personal research notes produced by an automated agent. Not investment advice. Levels are derived from the last
-    closed session; check the chart before acting. Track-record figures assume next-open entries and round-trip costs.
-  </footer>
+  <div id="root"></div>
+  <script type="module" src="/src/main.jsx"></script>
 </body>
 </html>

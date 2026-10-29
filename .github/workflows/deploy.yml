@@ -18,6 +18,7 @@ on:
       - "tests/**"
       - "package.json"
       - "package-lock.json"
+      - "vite.config.js"
       - ".github/workflows/deploy.yml"
   workflow_dispatch:
 

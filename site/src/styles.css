@@ -1,0 +1,71 @@
+@import "tailwindcss";
+
+/* Design tokens. Tailwind v4 exposes these as utilities (bg-surface, text-muted, ...);
+   dark mode swaps the variables, so components never need dark: variants. */
+@theme {
+  --color-bg: #f4f5f7;
+  --color-surface: #ffffff;
+  --color-surface-2: #eff1f4;
+  --color-ink: #15171c;
+  --color-muted: #5f6775;
+  --color-line: #e1e4e9;
+  --color-accent: #2456c9;
+  --color-on-accent: #ffffff;
+  --color-good: #12733a;
+  --color-good-bg: #e2f3e8;
+  --color-warn: #8a5a00;
+  --color-warn-bg: #fbf0d6;
+  --color-bad: #b3261e;
+  --color-bad-bg: #fbe4e2;
+  --font-sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+
+/* Dark palette: follows the OS unless the user picked a theme (data-theme on <html>). */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --color-bg: #0e1014;
+    --color-surface: #171a21;
+    --color-surface-2: #1f232c;
+    --color-ink: #e7e9ee;
+    --color-muted: #9aa2b1;
+    --color-line: #2a2f3a;
+    --color-accent: #7ea4ff;
+    --color-on-accent: #0e1014;
+    --color-good: #5fd08f;
+    --color-good-bg: #15301f;
+    --color-warn: #f1c25f;
+    --color-warn-bg: #33290e;
+    --color-bad: #ff8a80;
+    --color-bad-bg: #3a1714;
+  }
+}
+
+:root[data-theme="dark"] {
+  --color-bg: #0e1014;
+  --color-surface: #171a21;
+  --color-surface-2: #1f232c;
+  --color-ink: #e7e9ee;
+  --color-muted: #9aa2b1;
+  --color-line: #2a2f3a;
+  --color-accent: #7ea4ff;
+  --color-on-accent: #0e1014;
+  --color-good: #5fd08f;
+  --color-good-bg: #15301f;
+  --color-warn: #f1c25f;
+  --color-warn-bg: #33290e;
+  --color-bad: #ff8a80;
+  --color-bad-bg: #3a1714;
+  }
+
+@layer base {
+  html { -webkit-text-size-adjust: 100%; color-scheme: light dark; }
+  :root[data-theme="light"] { color-scheme: light; }
+  :root[data-theme="dark"] { color-scheme: dark; }
+  body { @apply bg-bg text-ink font-sans antialiased; }
+  summary { list-style: none; cursor: pointer; }
+  summary::-webkit-details-marker { display: none; }
+}
+
+@utility tabular { font-variant-numeric: tabular-nums; }
+@utility pb-safe { padding-bottom: env(safe-area-inset-bottom); }

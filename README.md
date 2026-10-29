@@ -90,8 +90,8 @@ indicators/
 notes/
   TEMPLATE.md                   Research-note template
 pipeline/                       Daily agent data pipeline (stdlib Python)
-site/                           Encrypted daily-scan dashboard (GitHub Pages)
-tools/                          Dashboard build + payload encryption (Node, no dependencies)
+site/                           Encrypted daily-scan dashboard (React + Tailwind, GitHub Pages)
+tools/                          Dashboard build + payload encryption (Node)
 tests/                          Python + Node tests
 agent/ROUTINE.md                How the daily agent routine is wired
 CLAUDE.md                       Development guidelines and coding standards
