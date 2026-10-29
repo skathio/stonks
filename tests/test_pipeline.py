@@ -135,7 +135,8 @@ class AnalysisValidation(unittest.TestCase):
 class LedgerFills(unittest.TestCase):
     def _pick(self):
         c = analysis.validate(good_analysis(), "2026-10-29", FEATS)["candidates"][0]
-        return ledger.new_pick("2026-10-29", c, analysis.levels(c, FEATS["AAA"]), FEATS["AAA"], "Tech")
+        return ledger.new_pick("2026-10-29", c, analysis.levels(c, FEATS["AAA"]), FEATS["AAA"], "Tech",
+                               "2026-10-30T06:05:00+00:00")  # 07:05 CET, before the 10-30 open
 
     def _days(self, n):
         return days_from(dt.date(2026, 10, 29), n + 1)
@@ -199,3 +200,24 @@ class HistoryBreak(unittest.TestCase):
         days = days_from(dt.date(2025, 1, 1), 260)
         bars = [(10.0, 10.1, 9.9, 10.0, 5e6)] * 100 + [(150.0, 151.0, 149.0, 150.0, 5e6)] * 160
         self.assertIsNone(features.ticker_features(bars, {}, days))
+
+
+class LedgerPublishTime(unittest.TestCase):
+    def test_publish_during_us_hours_skips_that_days_open(self):
+        c = analysis.validate(good_analysis(), "2026-10-29", FEATS)["candidates"][0]
+        # Published 2026-10-30 15:00 ET: the 10-30 open already printed.
+        pick = ledger.new_pick("2026-10-29", c, analysis.levels(c, FEATS["AAA"]), FEATS["AAA"], "Tech",
+                               "2026-10-30T19:00:00+00:00")
+        days = days_from(dt.date(2026, 10, 29), 3)  # 10-29, 10-30, 11-02
+        bars = [None, (100, 101, 99, 100, 1), (100.5, 102, 100, 101, 1)]
+        p = ledger.evaluate(pick, days, bars, bars)
+        self.assertEqual(p["entry_date"], "2026-11-02")
+        self.assertEqual(p["entry"], 100.5)
+
+    def test_publish_before_open_fills_that_day(self):
+        c = analysis.validate(good_analysis(), "2026-10-29", FEATS)["candidates"][0]
+        pick = ledger.new_pick("2026-10-29", c, analysis.levels(c, FEATS["AAA"]), FEATS["AAA"], "Tech",
+                               "2026-10-30T06:05:00+00:00")
+        days = days_from(dt.date(2026, 10, 29), 2)
+        p = ledger.evaluate(pick, days, [None, (100, 101, 99, 100, 1)], [None, (1, 1, 1, 1, 1)])
+        self.assertEqual(p["entry_date"], "2026-10-30")

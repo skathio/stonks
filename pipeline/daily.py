@@ -292,8 +292,9 @@ def publish(root, as_of=None, encrypt=True):
         item["name"] = members.get(item["ticker"], unknown_member)["name"]
         item["close"] = feats[item["ticker"]]["close"]
 
-    picks = _update_ledger(root, as_of, result, feats)
-    day_payload = {"as_of": as_of, "generated_utc": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds"),
+    published_utc = dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")
+    picks = _update_ledger(root, as_of, result, feats, published_utc)
+    day_payload = {"as_of": as_of, "generated_utc": published_utc,
                    "analysis": result,
                    "market": {k: market[k] for k in ("benchmarks", "sectors", "macro", "baseline_regime", "universe", "tag_counts")},
                    "breadth": market["breadth"]}
@@ -308,11 +309,11 @@ def publish(root, as_of=None, encrypt=True):
     return dash
 
 
-def _update_ledger(root, as_of, result, feats):
+def _update_ledger(root, as_of, result, feats, published_utc):
     path = os.path.join(root, "ledger.json")
     picks = {p["id"]: p for p in read_json(path, [])}
     for c in result["candidates"]:
-        pick = ledger.new_pick(as_of, c, c["levels"], feats[c["ticker"]], c["sector"])
+        pick = ledger.new_pick(as_of, c, c["levels"], feats[c["ticker"]], c["sector"], published_utc)
         picks.setdefault(pick["id"], pick)  # a re-publish never rewrites a past call
     tickers = sorted({p["ticker"] for p in picks.values()} | {"SPY"})
     days, panel = history.load_panel(root, tickers)
