@@ -262,12 +262,14 @@ def publish(root, as_of=None, encrypt=True):
     if raw is None:
         raise SystemExit(f"{out_dir}/analysis.json not found")
     members = universe.load(root)
+    unknown_member = {"name": "", "sector": "Unknown", "index": ""}
     result = analysis_mod.validate(raw, as_of, feats)
 
     for c in result["candidates"]:
         f = feats[c["ticker"]]
         c["levels"] = analysis_mod.levels(c, f)
-        c["name"], c["sector"] = members[c["ticker"]]["name"], members[c["ticker"]]["sector"]
+        member = members.get(c["ticker"], unknown_member)  # index changes between runs
+        c["name"], c["sector"] = member["name"], member["sector"]
         c["features"] = {k: f.get(k) for k in ("rs_rank", "rs_rising", "trend_stack", "ext_ema21_atr", "dist_52wh_atr",
                                                "pct_off_52wh", "atr_pct", "ret_21d_pct", "ret_63d_pct", "vol_ratio",
                                                "adv20_usd_m", "bars_since_squeeze", "tags")}
@@ -276,10 +278,10 @@ def publish(root, as_of=None, encrypt=True):
         c["earnings_inside_horizon"] = bool(nxt and nxt["sessions_away"] <= c["horizon_sessions"])
         c["news"] = [n for n in (enriched.get(c["ticker"], {}).get("news") or [])[:5] if n.get("url", "").startswith("https://")]
     for item in result["watchlist"] + result["avoid"]:
-        item["name"] = members[item["ticker"]]["name"]
+        item["name"] = members.get(item["ticker"], unknown_member)["name"]
         item["close"] = feats[item["ticker"]]["close"]
 
-    picks = _update_ledger(root, as_of, result, feats, members)
+    picks = _update_ledger(root, as_of, result, feats)
     day_payload = {"as_of": as_of, "generated_utc": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds"),
                    "analysis": result,
                    "market": {k: market[k] for k in ("benchmarks", "sectors", "macro", "baseline_regime", "universe", "tag_counts")},
@@ -295,11 +297,11 @@ def publish(root, as_of=None, encrypt=True):
     return dash
 
 
-def _update_ledger(root, as_of, result, feats, members):
+def _update_ledger(root, as_of, result, feats):
     path = os.path.join(root, "ledger.json")
     picks = {p["id"]: p for p in read_json(path, [])}
     for c in result["candidates"]:
-        pick = ledger.new_pick(as_of, c, c["levels"], feats[c["ticker"]], members[c["ticker"]]["sector"])
+        pick = ledger.new_pick(as_of, c, c["levels"], feats[c["ticker"]], c["sector"])
         picks.setdefault(pick["id"], pick)  # a re-publish never rewrites a past call
     tickers = sorted({p["ticker"] for p in picks.values()} | {"SPY"})
     days, panel = history.load_panel(root, tickers)

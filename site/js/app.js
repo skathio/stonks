@@ -2,7 +2,7 @@
 // Dashboard app: unlock -> decrypt -> render. All text goes through
 // textContent (never innerHTML); links only accept https (safeUrl).
 // =============================================================================
-import { decryptJson, deriveKey, exportKey, importKey, verifyKey } from "./crypto.js";
+import { decryptJson, extractKeyText, importKeyText, verifyKey } from "./crypto.js";
 import {
   convictionDots, earningsNote, fmtNum, fmtPct, fmtPrice, fmtR, regimeInfo, routeFromHash, safeUrl,
   setupLabel, signClass, statusLabel, tradingViewUrl,
@@ -47,44 +47,52 @@ function num(x, fmt = fmtPct) {
 }
 
 // =============================================================================
-// Key handling
+// Key handling: the key arrives once via the unlock link's #k=<key> fragment
+// (never sent to the server), is remembered on this device, and is stripped
+// from the address bar so it doesn't linger on screen or in history.
 // =============================================================================
-function storage(kind) {
+function storage() {
   try {
-    return kind === "local" ? window.localStorage : window.sessionStorage;
+    return window.localStorage;
   } catch {
     return null;
   }
 }
 
-async function restoreKey() {
-  for (const kind of ["session", "local"]) {
-    const raw = storage(kind)?.getItem(KEY_STORE);
-    if (!raw) continue;
-    try {
-      const key = await importKey(raw);
-      if (await verifyKey(key, state.keyinfo)) return key;
-    } catch { /* stale or corrupt entry */ }
-    storage(kind)?.removeItem(KEY_STORE);
+async function tryKey(keyText) {
+  if (!keyText) return null;
+  try {
+    const key = await importKeyText(keyText);
+    return (await verifyKey(key, state.keyinfo)) ? key : null;
+  } catch {
+    return null;
   }
-  return null;
 }
 
-async function unlock(passphrase, remember) {
-  const { salt, iterations } = state.keyinfo.kdf;
-  const extractable = await deriveKey(passphrase, salt, iterations, true);
-  if (!(await verifyKey(extractable, state.keyinfo))) return false;
-  const raw = await exportKey(extractable);
+async function acceptKey(keyText) {
+  const key = await tryKey(keyText);
+  if (!key) return false;
   try {
-    storage("session")?.setItem(KEY_STORE, raw);
-    if (remember) storage("local")?.setItem(KEY_STORE, raw);
-  } catch { /* storage unavailable: unlock just lasts this page view */ }
-  state.key = await importKey(raw);
+    storage()?.setItem(KEY_STORE, keyText);
+  } catch { /* storage blocked: unlock lasts this page view only */ }
+  state.key = key;
   return true;
 }
 
+async function restoreKey() {
+  const fromLink = extractKeyText(location.hash);
+  if (fromLink) {
+    history.replaceState(null, "", `${location.pathname}${location.search}`);
+    if (await acceptKey(fromLink)) return true;
+  }
+  const stored = storage()?.getItem(KEY_STORE);
+  if (stored && (await acceptKey(stored))) return true;
+  if (stored) storage()?.removeItem(KEY_STORE); // key was rotated
+  return false;
+}
+
 function lock() {
-  for (const kind of ["session", "local"]) storage(kind)?.removeItem(KEY_STORE);
+  storage()?.removeItem(KEY_STORE);
   state.key = null;
   state.cache.clear();
   showLogin();
@@ -104,30 +112,26 @@ async function load(rel) {
 // =============================================================================
 function showLogin(message = "") {
   $("#nav").hidden = true;
-  const input = h("input", { type: "password", id: "pass", autocomplete: "current-password", required: true, "aria-label": "Passphrase" });
-  const remember = h("input", { type: "checkbox", id: "remember" });
+  const input = h("input", { type: "password", id: "key", autocomplete: "off", required: true,
+    "aria-label": "Unlock link or key", placeholder: "Paste your unlock link" });
   const status = h("p", { class: "login-status", role: "status" }, message);
   const form = h("form", {
     class: "login card",
     onsubmit: async (ev) => {
       ev.preventDefault();
-      status.textContent = "Deriving key…";
-      form.querySelector("button").disabled = true;
-      const ok = await unlock(input.value, remember.checked);
+      const ok = await acceptKey(extractKeyText(input.value));
       input.value = "";
       if (ok) return route();
-      form.querySelector("button").disabled = false;
-      status.textContent = "Wrong passphrase.";
+      status.textContent = "That link or key doesn't open the current dashboard.";
     },
   },
-  h("h2", {}, "Unlock dashboard"),
-  h("p", { class: "muted" }, "The analysis is encrypted. Decryption happens in this browser; the passphrase never leaves it."),
+  h("h2", {}, "Dashboard locked"),
+  h("p", { class: "muted" }, "Open your unlock link once on this device, or paste it here. "
+    + "The data is encrypted and decrypted in this browser; the key never leaves it."),
   input,
-  h("label", { class: "check" }, remember, " Remember on this device"),
   h("button", { type: "submit" }, "Unlock"),
   status);
   $("#main").replaceChildren(form);
-  input.focus();
 }
 
 function renderNav(active, date) {
@@ -297,9 +301,12 @@ async function init() {
     $("#main").replaceChildren(h("p", { class: "card muted" }, "No analysis has been published yet."));
     return;
   }
-  state.key = await restoreKey();
-  window.addEventListener("hashchange", route);
-  await route();
+  await restoreKey();
+  window.addEventListener("hashchange", async () => {
+    if (extractKeyText(location.hash)) await restoreKey(); // a link opened in an existing tab
+    await route();
+  });
+  await route(); // shows the lock screen when no valid key was found
 }
 
 init();

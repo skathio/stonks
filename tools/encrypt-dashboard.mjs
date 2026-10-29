@@ -3,20 +3,15 @@
 // Encrypt the plaintext dashboard payload (private stonks-data/dashboard/)
 // into the public site (site/data/). Called by `pipeline publish`.
 //
-//   STONKS_DASHBOARD_PASSPHRASE=... node tools/encrypt-dashboard.mjs --src <dir> --dst site/data
+//   STONKS_DASHBOARD_KEY=<43-char base64url> node tools/encrypt-dashboard.mjs --src <dir> --dst site/data
 //
-// The salt is kept across runs while the passphrase still verifies, so a key
-// remembered in the browser keeps working. A new passphrase gets a fresh salt.
-// The destination is rewritten completely each run: nothing stale stays published.
+// Generate a key and its unlock link with tools/new-dashboard-key.mjs. The
+// destination is rewritten completely each run: nothing stale stays published.
 // =============================================================================
 import { mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { dirname, join, relative, sep } from "node:path";
 import { fileURLToPath } from "node:url";
-import {
-  PBKDF2_ITERATIONS, deriveKey, encryptText, makeKeyInfo, randomBytes, toB64, verifyKey,
-} from "../site/js/crypto.js";
-
-export const MIN_PASSPHRASE_LENGTH = 20;
+import { encryptText, importKeyText, makeKeyInfo } from "../site/js/crypto.js";
 
 async function listJson(dir) {
   const out = [];
@@ -28,30 +23,8 @@ async function listJson(dir) {
   return out;
 }
 
-async function readExistingKeyInfo(dst) {
-  try {
-    return JSON.parse(await readFile(join(dst, "keyinfo.json"), "utf8"));
-  } catch {
-    return null;
-  }
-}
-
-export async function encryptDashboard({ src, dst, passphrase, iterations = PBKDF2_ITERATIONS }) {
-  if (!passphrase || passphrase.length < MIN_PASSPHRASE_LENGTH) {
-    throw new Error(`STONKS_DASHBOARD_PASSPHRASE must be at least ${MIN_PASSPHRASE_LENGTH} characters`);
-  }
-  const previous = await readExistingKeyInfo(dst);
-  let salt = toB64(randomBytes(16));
-  let key = null;
-  if (previous?.kdf?.salt && previous.kdf.iterations === iterations) {
-    const candidate = await deriveKey(passphrase, previous.kdf.salt, iterations);
-    if (await verifyKey(candidate, previous)) {
-      salt = previous.kdf.salt;
-      key = candidate;
-    }
-  }
-  key ??= await deriveKey(passphrase, salt, iterations);
-
+export async function encryptDashboard({ src, dst, keyText }) {
+  const key = await importKeyText(keyText);
   const files = await listJson(src);
   await rm(dst, { recursive: true, force: true });
   await mkdir(dst, { recursive: true });
@@ -61,8 +34,8 @@ export async function encryptDashboard({ src, dst, passphrase, iterations = PBKD
     await mkdir(dirname(join(dst, rel)), { recursive: true });
     await writeFile(join(dst, rel), JSON.stringify(envelope));
   }
-  await writeFile(join(dst, "keyinfo.json"), JSON.stringify(await makeKeyInfo(key, salt, iterations), null, 2));
-  return { files: files.length, saltReused: salt === previous?.kdf?.salt };
+  await writeFile(join(dst, "keyinfo.json"), JSON.stringify(await makeKeyInfo(key), null, 2));
+  return { files: files.length };
 }
 
 function parseArgs(argv) {
@@ -75,8 +48,8 @@ function parseArgs(argv) {
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
   try {
     const { src, dst } = parseArgs(process.argv.slice(2));
-    const result = await encryptDashboard({ src, dst, passphrase: process.env.STONKS_DASHBOARD_PASSPHRASE });
-    console.error(`encrypt-dashboard: ${result.files} files -> ${dst} (salt ${result.saltReused ? "reused" : "new"})`);
+    const result = await encryptDashboard({ src, dst, keyText: process.env.STONKS_DASHBOARD_KEY });
+    console.error(`encrypt-dashboard: ${result.files} files -> ${dst}`);
   } catch (err) {
     console.error(`encrypt-dashboard: ${err.message}`);
     process.exit(1);

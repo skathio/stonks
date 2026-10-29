@@ -105,8 +105,8 @@ A scheduled Claude agent analyses the S&P 500 + S&P 400 every morning (07:00 CET
 data is final. It publishes long swing-trade candidates (regime read, setup, conviction, ATR-based
 stop/targets, earnings timing) and a forward-tracked record of every past pick to GitHub Pages.
 
-The published data is **encrypted** (AES-256-GCM, key derived from a passphrase with PBKDF2) and decrypted
-in the browser. The free market-data feeds it uses only allow personal, non-public use, so the site is a
+The published data is **encrypted** (AES-256-GCM, random 256-bit key) and decrypted in the browser. The key
+is delivered once per device through an unlock link's `#fragment`, which never reaches the server. The free market-data feeds it uses only allow personal, non-public use, so the site is a
 private dashboard that happens to be hosted on Pages. See [`agent/ROUTINE.md`](agent/ROUTINE.md).
 
 ---

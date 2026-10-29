@@ -3,18 +3,21 @@
 //
 // Why: the analysis is derived from Massive/Finnhub data whose terms forbid
 // public display. GitHub Pages is public, so only ciphertext is published and
-// the browser decrypts it locally with the passphrase.
+// the browser decrypts it locally.
 //
-// Scheme: PBKDF2-SHA256 (600k iterations, 16-byte salt) -> AES-256-GCM with a
-// 12-byte random IV per file. The file's path is the additional authenticated
-// data, so a ciphertext can't be swapped in under another name.
+// Scheme: a random 256-bit key (STONKS_DASHBOARD_KEY, base64url) and
+// AES-256-GCM with a 12-byte random IV per file. The file's path is the
+// additional authenticated data, so a ciphertext can't be swapped in under
+// another name. The key is high-entropy, so no KDF is needed. It travels in
+// the unlock link's #fragment, which browsers never send to the server.
 // Uses WebCrypto only (globalThis.crypto.subtle): identical in Node >= 20 and
 // in browsers.
 // =============================================================================
 export const FORMAT_VERSION = 1;
-export const PBKDF2_ITERATIONS = 600_000;
+export const KEY_BYTES = 32;
 export const CHECK_PLAINTEXT = "stonks-dashboard-ok";
 export const CHECK_AAD = "keyinfo";
+const KEY_RE = /^[A-Za-z0-9_-]{43}$/;
 
 const subtle = () => globalThis.crypto.subtle;
 const enc = new TextEncoder();
@@ -36,27 +39,38 @@ export function fromB64(text) {
   return out;
 }
 
+export function toB64Url(bytes) {
+  return toB64(bytes).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+export function fromB64Url(text) {
+  const b64 = text.replace(/-/g, "+").replace(/_/g, "/");
+  return fromB64(b64 + "=".repeat((4 - (b64.length % 4)) % 4));
+}
+
 export function randomBytes(n) {
   return globalThis.crypto.getRandomValues(new Uint8Array(n));
 }
 
-export async function deriveKey(passphrase, saltB64, iterations = PBKDF2_ITERATIONS, extractable = false) {
-  const base = await subtle().importKey("raw", enc.encode(passphrase), "PBKDF2", false, ["deriveKey"]);
-  return subtle().deriveKey(
-    { name: "PBKDF2", hash: "SHA-256", salt: fromB64(saltB64), iterations },
-    base,
-    { name: "AES-GCM", length: 256 },
-    extractable,
-    ["encrypt", "decrypt"],
-  );
+export function generateKeyText() {
+  return toB64Url(randomBytes(KEY_BYTES));
 }
 
-export async function exportKey(key) {
-  return toB64(await subtle().exportKey("raw", key));
+export function isKeyText(text) {
+  return typeof text === "string" && KEY_RE.test(text) && fromB64Url(text).length === KEY_BYTES;
 }
 
-export async function importKey(rawB64) {
-  return subtle().importKey("raw", fromB64(rawB64), { name: "AES-GCM" }, false, ["encrypt", "decrypt"]);
+/** Accepts a bare key or anything containing "#k=<key>" (a pasted unlock link). */
+export function extractKeyText(input) {
+  const text = String(input ?? "").trim();
+  const m = text.match(/#k=([A-Za-z0-9_-]{43})/);
+  const candidate = m ? m[1] : text;
+  return isKeyText(candidate) ? candidate : null;
+}
+
+export async function importKeyText(keyText) {
+  if (!isKeyText(keyText)) throw new Error("dashboard key must be 32 random bytes, base64url-encoded (43 chars)");
+  return subtle().importKey("raw", fromB64Url(keyText), { name: "AES-GCM" }, false, ["encrypt", "decrypt"]);
 }
 
 export async function encryptText(key, text, aad) {
@@ -84,16 +98,11 @@ export async function decryptJson(key, envelope, aad) {
   return JSON.parse(await decryptText(key, envelope, aad));
 }
 
-export async function makeKeyInfo(key, saltB64, iterations = PBKDF2_ITERATIONS) {
-  return {
-    v: FORMAT_VERSION,
-    kdf: { name: "PBKDF2", hash: "SHA-256", iterations, salt: saltB64 },
-    cipher: "AES-256-GCM",
-    check: await encryptText(key, CHECK_PLAINTEXT, CHECK_AAD),
-  };
+export async function makeKeyInfo(key) {
+  return { v: FORMAT_VERSION, cipher: "AES-256-GCM", check: await encryptText(key, CHECK_PLAINTEXT, CHECK_AAD) };
 }
 
-/** True when `key` decrypts the keyinfo check token, i.e. the passphrase is right. */
+/** True when `key` decrypts the keyinfo check token, i.e. it is the current key. */
 export async function verifyKey(key, keyinfo) {
   try {
     return (await decryptText(key, keyinfo.check, CHECK_AAD)) === CHECK_PLAINTEXT;

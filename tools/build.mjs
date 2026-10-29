@@ -27,7 +27,7 @@ async function assertEncrypted(dir) {
     }
     const doc = JSON.parse(await readFile(path, "utf8"));
     const isEnvelope = typeof doc.iv === "string" && typeof doc.ct === "string" && doc.v === 1;
-    const isKeyInfo = e.name === "keyinfo.json" && doc.kdf && doc.check;
+    const isKeyInfo = e.name === "keyinfo.json" && doc.check && typeof doc.check.ct === "string";
     if (!isEnvelope && !isKeyInfo) throw new Error(`refusing to publish non-encrypted file: ${path}`);
     count++;
   }
