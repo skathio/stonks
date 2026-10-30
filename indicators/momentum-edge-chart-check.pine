@@ -1,6 +1,6 @@
 //@version=6
 // ============================================================
-// Momentum Edge — Chart Check (Daily) — 2026-10-30 — v1.4
+// Momentum Edge — Chart Check (Daily) — 2026-10-30 — v1.5
 // Pine Script v6 | Author: skathi | Replaces ME Swing Engine + ME Regime & Quality
 // ============================================================
 // Purpose:   Visual confirmation layer for the daily agent dashboard. Mirrors
@@ -90,9 +90,10 @@ i_showLvls  = input.bool(true,    "Show levels (stop / chase / targets)",       
 i_showPanel = input.bool(true,    "Show panel",                                                        group="Display")
 i_nearPct   = input.float(5.0,    "Borderline band (%)",          minval=0.0, maxval=25.0, step=1.0,  group="Display")
 i_markLook  = input.int(120,      "Markers: last N bars (0 = all)", minval=0, maxval=5000,               group="Display")
-i_panelPos  = input.string("bottom_left", "Panel position", options=["top_right", "middle_right", "bottom_right", "top_left", "middle_left", "bottom_left"], group="Panel")
+i_panelPos  = input.string("bottom_right", "Panel position", options=["top_right", "middle_right", "bottom_right", "top_left", "middle_left", "bottom_left"], group="Panel")
 i_panelSize = input.string("small", "Panel text size", options=["tiny", "small", "normal"],                group="Panel")
 i_compact   = input.bool(true,    "Compact panel (verdict, setup, volume, extension, earnings, history)", group="Panel")
+i_tall      = input.bool(true,    "Tall panel (label above value, narrow)",                            group="Panel", tooltip="Narrow and tall, so it covers less of the chart and volume on a phone. Off: two columns, one line per row.")
 i_showHist  = input.bool(true,    "Show past trade windows",                                           group="History", tooltip="Replays past in-context A/b/B signals with the dashboard ledger's fill rules (20-session hold), using the stop, chase and target 1 above. Set those to the dashboard pick's values: tuning them until this chart's history looks good is curve-fitting one stock.")
 i_histBars  = input.int(504,      "History window (bars)",        minval=60,  maxval=2000,              group="History", tooltip="Only signals inside the last N bars count. 504 is about two years.")
 
@@ -362,21 +363,30 @@ reason     = vAvoidEma ? "below EMA50" : vAvoidExt ? "extended > 4 ATR" : earnSo
 vColor     = verdict == "CONFIRM" ? C_GOOD : verdict == "AVOID" ? C_BAD : C_WARN
 setupTxt   = cA ? "A squeeze breakout" : cBo ? "b breakout" : cB ? "B pullback reclaim" : cPost ? str.format("post-squeeze ({0} bar{1})", barsSinceSq[off], barsSinceSq[off] == 1 ? "" : "s") : squeeze[off] ? "in squeeze" : "none"
 header     = isDaily ? str.format("as of {0}", str.format_time(asOfT, "yyyy-MM-dd", syminfo.timezone)) : "ME Check"
-headVal    = not isDaily ? "Daily timeframe required" : pinMissed ? "pin date not on chart: auto" : pinTooOld ? "pin older than 500 bars: auto" : verdict + (reason != "" ? " · " + reason : "")
+// Long values break onto a second line in the tall panel.
+SEP        = i_tall ? "\n" : " · "
+headVal    = not isDaily ? "Daily timeframe required" : pinMissed ? "pin date not on chart: auto" : pinTooOld ? "pin older than 500 bars: auto" : verdict + (reason != "" ? SEP + reason : "")
 headCol    = not isDaily or pinMissed or pinTooOld ? C_WARN : vColor
-earnTxt    = na(earnSess) ? "no date (TV)" : str.format("{0} · ~{1} sess (TV, from today)", str.format_time(int(earnT), "MMM d", syminfo.timezone), earnSess)
+earnTxt    = na(earnSess) ? "no date (TV)" : str.format("{0} · ~{1} sess", str.format_time(int(earnT), "MMM d", syminfo.timezone), earnSess) + SEP + "(TV, from today)"
 earnCol    = earnSoon ? C_BAD : not na(earnSess) and earnSess <= i_horizon ? C_WARN : C_MUTE
 hAvgR      = hN > 0 ? hSumR / hN : na
-histOpen   = na(hOpenR) ? "" : " · open " + f_signed(hOpenR, "#.#") + "R"
-histTxt    = (hN == 0 ? "none in window" : str.format("{0} · {1,number,#}% up · avg {2}R net · T1 {3}{4}", hN, 100.0 * hUp / hN, f_signed(hAvgR, "#.##"), hT1n, hN < LOW_SAMPLE ? " · small n" : "")) + histOpen + (pinOk ? " · to today" : "")
+histOpen   = na(hOpenR) ? "" : SEP + "open " + f_signed(hOpenR, "#.#") + "R"
+histNote   = (hN > 0 and hN < LOW_SAMPLE ? "small n" : "") + (pinOk ? (hN > 0 and hN < LOW_SAMPLE ? " · " : "") + "up to today" : "")
+histTxt    = (hN == 0 ? "none in window" : str.format("{0} trades · {1,number,#}% up", hN, 100.0 * hUp / hN) + SEP + str.format("avg {0}R · T1 {1}", f_signed(hAvgR, "#.##"), hT1n)) + (histNote != "" ? SEP + histNote : "") + histOpen
 histCol    = hN < LOW_SAMPLE ? C_MUTE : hAvgR > 0 ? C_GOOD : C_BAD
 
 panelPos  = i_panelPos == "top_right" ? position.top_right : i_panelPos == "middle_right" ? position.middle_right : i_panelPos == "bottom_right" ? position.bottom_right : i_panelPos == "top_left" ? position.top_left : i_panelPos == "middle_left" ? position.middle_left : position.bottom_left
 panelText = i_panelSize == "tiny" ? size.tiny : i_panelSize == "normal" ? size.normal : size.small
 nRows     = i_compact ? 6 : 14
-var table panel = table.new(panelPos, 2, nRows, bgcolor=color.new(#171a21, 8), border_width=0, frame_color=color.new(#2a2f3a, 0), frame_width=1)
-f_key(int r, string k) => table.cell(panel, 0, math.min(r, nRows - 1), k, text_color=color.new(#9aa2b1, 0), text_size=panelText, text_halign=text.align_left)
-f_val(int r, string v, color c) => table.cell(panel, 1, math.min(r, nRows - 1), v, text_color=c, text_size=panelText, text_halign=text.align_right)
+// Tall: one column, each row is a small label cell above its value cell (logical row r ->
+// table rows 2r and 2r+1). Wide: label and value side by side.
+panelRight = str.contains(i_panelPos, "right")
+keyText    = i_tall ? size.tiny : panelText
+keyAlign   = i_tall and panelRight ? text.align_right : text.align_left
+var table panel = table.new(panelPos, i_tall ? 1 : 2, i_tall ? 2 * nRows : nRows, bgcolor=color.new(#171a21, 8), border_width=0, frame_color=color.new(#2a2f3a, 0), frame_width=1)
+f_row(int r) => math.min(r, nRows - 1)
+f_key(int r, string k) => table.cell(panel, 0, i_tall ? 2 * f_row(r) : f_row(r), k, text_color=color.new(#9aa2b1, 0), text_size=keyText, text_halign=keyAlign)
+f_val(int r, string v, color c) => table.cell(panel, i_tall ? 0 : 1, i_tall ? 2 * f_row(r) + 1 : f_row(r), v, text_color=c, text_size=panelText, text_halign=i_tall ? keyAlign : text.align_right)
 // Rows render only on the last bar (cheap no-ops elsewhere: empty strings). Compact mode
 // shows rows 0-5 (what you act on) and blanks the context rows 6-13.
 showP = barstate.islast and i_showPanel
@@ -404,12 +414,12 @@ f_val(0, showP ? headVal : "", headCol)
 f_key(1, showD ? "Setup" : "")
 f_val(1, showD ? setupTxt : "", cA or cBo or cB ? C_GOOD : C_MUTE)
 f_key(2, showD ? "Volume" : "")
-f_val(2, showD ? str.format("{0,number,#.##}x (breakout needs 1.3x)", cVol) : "", f_near(cVol, VOL_SURGE) ? C_WARN : cVol >= VOL_SURGE ? C_GOOD : C_MUTE)
+f_val(2, showD ? str.format("{0,number,#.##}x", cVol) + (i_tall ? "\n" : " ") + "(breakout needs 1.3x)" : "", f_near(cVol, VOL_SURGE) ? C_WARN : cVol >= VOL_SURGE ? C_GOOD : C_MUTE)
 f_key(3, showD ? "Extension" : "")
 f_val(3, showD ? str.format("{0,number,#.#} ATR vs EMA21", cExt) : "", cExt > MAX_EXT_ATR ? C_BAD : f_near(cExt, MAX_EXT_ATR) ? C_WARN : C_GOOD)
 f_key(4, showD ? "Next earnings" : "")
 f_val(4, showD ? earnTxt : "", earnCol)
-f_key(5, showD ? "Past signals" : "")
+f_key(5, showD ? "Past signals (net of costs)" : "")
 f_val(5, showD ? histTxt : "", histCol)
 
 // ============================================================
