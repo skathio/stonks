@@ -1,6 +1,6 @@
 //@version=6
 // ============================================================
-// Momentum Edge — Chart Check (Daily) — 2026-10-30 — v1.5
+// Momentum Edge — Chart Check (Daily) — 2026-10-30 — v1.6 (position rules v2)
 // Pine Script v6 | Author: skathi | Replaces ME Swing Engine + ME Regime & Quality
 // ============================================================
 // Purpose:   Visual confirmation layer for the daily agent dashboard. Mirrors
@@ -9,20 +9,25 @@
 //            can't read (base box, prior-20 high, 52w high, bar shape).
 //            It adds no independent edge: a CONFIRM means "chart and dashboard agree"
 //            and is not a second opinion on the call.
-// Regime:    US equities daily. Risk-on uptrends: squeeze -> breakout (A / b) and
-//            EMA21 pullback reclaims (B). Breaks in: chop, risk-off tape, earnings
-//            weeks, > 4 ATR extensions. Non-daily timeframes: draws nothing.
-// Repaint:   SPY is a SAME-timeframe read: lookahead_off and NO [1] (a [1] would
-//            compare stock_t with SPY_t-1). Breakout uses ta.highest(high,20)[1].
+// Regime:    US equities daily, position trades held 2-6 months. Risk-on uptrends:
+//            squeeze -> breakout (A / b) and EMA21 pullback reclaims (B) time the entry
+//            into a relative-strength leader. Breaks in: risk-off tape, momentum
+//            crashes, > 4 ATR extensions, new entries < 4 sessions before a report.
+//            Later reports are held through. Non-daily timeframes: draws nothing.
+// Repaint:   SPY and RSP are SAME-timeframe reads: lookahead_off and NO [1] (a [1]
+//            would compare stock_t with SPY_t-1). Breakout uses ta.highest(high,20)[1].
 //            Markers, squeeze dots and the extension tint draw on confirmed bars only.
 //            The panel scores the last CLOSED session (timenow >= time_close), or a
 //            pinned date, and prints it.
-// History:   Past in-context signals are replayed forward with the LEDGER's rules
+// History:   Past in-context signals are replayed forward with the LEDGER's v2 rules
 //            (pipeline/ledger.py): entry at the next open, skipped above the chase
-//            limit or at/below the stop, exit at the stop or marked at the horizon
-//            close of session 20, 0.2% round-trip costs in R. Targets are not exits. One trade at a
-//            time so the sample counts independent outcomes. It is THIS stock's past
-//            on THIS chart: a small, selection-biased sample, not the system's record.
+//            limit or at/below the stop, exit at the stop or at the close of session
+//            126, 0.2% round-trip costs. No profit targets: +20% is a reference only.
+//            Marked at 63 and 126 sessions, next to RSP over the trade's own window
+//            (the ledger marks RSP per horizon; for a stopped trade the two differ).
+//            One trade at a time so the sample counts independent outcomes. It is
+//            THIS stock's past on THIS chart: a small, selection-biased sample (a few
+//            trades in 5 years at these holds), not the system's record.
 // Format:    ZERO indentation on purpose. TradingView's mobile editor stacks
 //            indentation on paste, which breaks any indented Pine. So: no multi-line
 //            calls, single-line functions, ternaries instead of if blocks, and no
@@ -59,7 +64,7 @@ const int    RS_EMA       = 20
 const int    RS_RISING    = 5
 const int    BASE_LEN     = 15
 const int    YEAR_BARS    = 252
-const int    EARN_MIN     = 4       // publish rejects candidates with earnings < 4 sessions away
+const int    EARN_MIN     = 4       // publish rejects NEW positions with earnings < 4 sessions away
 const float  NEAR_TIGHT   = 1.0     // post-squeeze counts when the prior-20 high is within 1 ATR
 const int    SMA_MID      = 50
 const int    SMA_LONG     = 200
@@ -69,8 +74,14 @@ const int    PIN_BUFFER   = 499     // max_bars_back - 1: deepest pinnable offse
 const int    DAY_MS       = 86400000
 const string BENCH        = "AMEX:SPY"
 const float  COST_FRAC    = 0.002   // ledger.py COST_FRACTION: 0.10% commission + 0.10% slippage, round trip
-const int    LEDGER_HOLD  = 20      // ledger.py max(HORIZONS): stops checked and R marked over sessions 1..20
+const int    LEDGER_HOLD  = 126     // ledger.py max(HORIZONS): stop checked over sessions 1..126, then a time exit
+const int    LEDGER_MARK  = 63      // ledger.py HEADLINE: the mark the dashboard leads with
 const int    LOW_SAMPLE   = 30      // ledger.py low_sample threshold
+const string BENCH_EW     = "AMEX:RSP"  // equal-weight hurdle the ledger grades against
+const float  UPSIDE_PCT   = 20.0    // ledger.py UPSIDE_REF_PCT: reference level, never an exit
+const float  MAX_STOP_PCT = 15.0    // analysis.py MAX_STOP_PCT: publish rejects wider stops
+const int    EARN_HALF    = 15      // analysis.py EARNINGS_HALF_SIZE_SESSIONS
+const float  MAX_POS_PCT  = 15.0    // analysis.py MAX_POSITION_PCT
 
 // ============================================================
 // 2. INPUTS — dashboard hand-off + display only (none affect signals)
@@ -78,24 +89,24 @@ const int    LOW_SAMPLE   = 30      // ledger.py low_sample threshold
 
 i_pinAsOf   = input.bool(false,   "Pin to dashboard date",        group="Dashboard Hand-off", tooltip="Off: score the last closed session. On: score the date below (the dashboard's as_of).")
 i_asOfStr   = input.string("",    "Dashboard as_of (YYYY-MM-DD)", group="Dashboard Hand-off")
-i_stopAtr   = input.float(2.0,    "Stop (ATR)",                   minval=1.0, maxval=4.0,  step=0.25, group="Dashboard Hand-off")
-i_chaseAtr  = input.float(0.5,    "Max chase (ATR)",              minval=0.0, maxval=2.0,  step=0.25, group="Dashboard Hand-off")
-i_tgt1R     = input.float(2.0,    "Target 1 (R, 0 = off)",        minval=0.0, maxval=10.0, step=0.5,  group="Dashboard Hand-off")
-i_tgt2R     = input.float(4.0,    "Target 2 (R, 0 = off)",        minval=0.0, maxval=10.0, step=0.5,  group="Dashboard Hand-off")
-i_horizon   = input.int(20,       "Horizon (sessions)",           minval=5,   maxval=60,               group="Dashboard Hand-off")
+i_stopAtr   = input.float(4.5,    "Stop (ATR)",                   minval=3.0, maxval=6.0,  step=0.25, group="Dashboard Hand-off")
+i_chaseAtr  = input.float(0.5,    "Max chase (ATR)",              minval=0.0, maxval=1.5,  step=0.25, group="Dashboard Hand-off")
+i_horizon   = input.int(84,       "Planned hold (sessions)",      minval=42,  maxval=126,              group="Dashboard Hand-off", tooltip="When the first full review is due. The ledger itself marks 21/42/63/126 sessions.")
+i_riskPct   = input.float(1.0,    "Risk per trade (% of account, 0 = off)", minval=0.0, maxval=3.0, step=0.25, group="Sizing", tooltip="Account % lost at the stop. The size shown is risk / stop distance x the scale below, halved within 15 sessions of a report, capped at 15%.")
+i_sizeScale = input.float(1.0,    "Momentum size scale",          minval=0.01, maxval=1.0, step=0.01, group="Sizing", tooltip="Copy it from the dashboard (Momentum stocks, size scale) every session: it changes daily. 1.0 = full size.")
 
 i_showEmas  = input.bool(true,    "Show EMA 9/21/50 + SMA200",                                         group="Display")
 i_showStruc = input.bool(true,    "Show structure (prior-20 high, 52w high, base box)",                group="Display")
-i_showLvls  = input.bool(true,    "Show levels (stop / chase / targets)",                              group="Display")
+i_showLvls  = input.bool(true,    "Show levels (stop / chase / +20%)",                                 group="Display")
 i_showPanel = input.bool(true,    "Show panel",                                                        group="Display")
 i_nearPct   = input.float(5.0,    "Borderline band (%)",          minval=0.0, maxval=25.0, step=1.0,  group="Display")
 i_markLook  = input.int(120,      "Markers: last N bars (0 = all)", minval=0, maxval=5000,               group="Display")
 i_panelPos  = input.string("bottom_right", "Panel position", options=["top_right", "middle_right", "bottom_right", "top_left", "middle_left", "bottom_left"], group="Panel")
 i_panelSize = input.string("small", "Panel text size", options=["tiny", "small", "normal"],                group="Panel")
-i_compact   = input.bool(true,    "Compact panel (verdict, setup, volume, extension, earnings, history)", group="Panel")
+i_compact   = input.bool(true,    "Compact panel (verdict, setup, volume, extension, earnings, size, history)", group="Panel")
 i_tall      = input.bool(true,    "Tall panel (label above value, narrow)",                            group="Panel", tooltip="Narrow and tall, so it covers less of the chart and volume on a phone. Off: two columns, one line per row.")
-i_showHist  = input.bool(true,    "Show past trade windows",                                           group="History", tooltip="Replays past in-context A/b/B signals with the dashboard ledger's fill rules (20-session hold), using the stop, chase and target 1 above. Set those to the dashboard pick's values: tuning them until this chart's history looks good is curve-fitting one stock.")
-i_histBars  = input.int(504,      "History window (bars)",        minval=60,  maxval=2000,              group="History", tooltip="Only signals inside the last N bars count. 504 is about two years.")
+i_showHist  = input.bool(true,    "Show past trade windows",                                           group="History", tooltip="Replays past in-context A/b/B signals with the dashboard ledger's v2 rules (stop or a 126-session time exit), using the stop and chase above. Set those to the dashboard pick's values: tuning them until this chart's history looks good is curve-fitting one stock.")
+i_histBars  = input.int(1260,     "History window (bars)",        minval=126, maxval=2000,              group="History", tooltip="Only signals inside the last N bars count. 1260 is about five years: at 126-session holds even that gives only a handful of trades.")
 
 // ============================================================
 // 3. FEATURES — one line per features.py definition
@@ -142,6 +153,8 @@ baseRangeAtr = (baseHigh - baseLow) / atr
 // SPY: SAME-timeframe read, no [1] (pine-v6-patterns §1b). The EMA is computed on SPY's own bars.
 [spyClose, spyEma, spyEma5] = request.security(BENCH, timeframe.period, [close, ta.ema(close, MKT_EMA), ta.ema(close, MKT_EMA)[5]], lookahead=barmerge.lookahead_off)
 riskOn   = spyClose > spyEma and spyEma > spyEma5
+// RSP: same-timeframe read for the history's equal-weight comparison (display only, not a signal input).
+[rspOpen, rspClose] = request.security(BENCH_EW, timeframe.period, [open, close], lookahead=barmerge.lookahead_off)
 rsLine   = spyClose > 0 ? close / spyClose : na
 rsEma    = ta.ema(rsLine, RS_EMA)
 rsRising = rsEma > rsEma[RS_RISING]
@@ -224,14 +237,20 @@ hSignal = isDaily and barstate.isconfirmed and bar_index > last_bar_index - i_hi
 var int   hState    = 0
 var float hStop     = na
 var float hMax      = na
-var float hT1       = na
+var float hUpLvl    = na
 var float hEntry    = na
 var int   hEntryBar = na
-var bool  hT1Hit    = false
+var float hRspIn    = na
+var float hAt63     = na
+var bool  hUpHit    = false
 var int   hN        = 0
 var int   hUp       = 0
-var int   hT1n      = 0
+var int   hUpN      = 0
+var int   hRspN     = 0
 var float hSumR     = 0.0
+var float hSumPct   = 0.0
+var float hSum63    = 0.0
+var float hSumEx    = 0.0
 
 hBar      = isDaily and barstate.isconfirmed
 hS0       = hState
@@ -239,7 +258,9 @@ hFill     = hBar and hS0 == 1 and open <= hMax and open > hStop      // ledger: 
 hSkip     = hBar and hS0 == 1 and not hFill
 hEntry    := hFill ? open : hEntry
 hEntryBar := hFill ? bar_index : hEntryBar
-hT1Hit    := hFill ? false : hT1Hit
+hRspIn    := hFill ? rspOpen : hRspIn
+hAt63     := hFill ? na : hAt63
+hUpHit    := hFill ? false : hUpHit
 hLive     = hBar and (hS0 == 2 or hFill)
 hRisk     = hEntry - hStop
 hStopX    = hLive and low <= hStop
@@ -247,39 +268,45 @@ hExitPx   = hStopX ? (bar_index == hEntryBar ? hStop : math.min(open, hStop)) : 
 hSess     = bar_index - hEntryBar + 1                                  // the entry session is session 1
 hTimeX    = hLive and not hStopX and hSess >= LEDGER_HOLD
 hExit     = hStopX or hTimeX
-hT1Hit    := hLive and not hStopX and not na(hT1) and high >= hT1 ? true : hT1Hit   // the stop bar doesn't count
+hUpHit    := hLive and not hStopX and high >= hUpLvl ? true : hUpHit   // the stop bar doesn't count
+hAt63     := hLive and not hStopX and hSess == LEDGER_MARK ? 100 * (close / hEntry - 1) - 100 * COST_FRAC : hAt63
 hR        = hExit ? (hExitPx - hEntry) / hRisk - COST_FRAC * hEntry / hRisk : na
 hPct      = hExit ? 100 * (hExitPx / hEntry - 1) - 100 * COST_FRAC : na
+hPct63    = hExit ? (hSess <= LEDGER_MARK ? hPct : hAt63) : na                  // stopped before 63: the exit
+hRspPct   = hExit and hRspIn > 0 and rspClose > 0 ? 100 * (rspClose / hRspIn - 1) : na
 
 f_signed(float x, string fmt) => (x >= 0 ? "+" : "") + str.tostring(x, fmt)
 
-// Trade window, drawn when it closes: green zone entry -> T1, red zone stop -> entry.
-// The zone that decided the trade is shaded stronger. The label carries R and % after costs.
+// Trade window, drawn when it closes: green zone entry -> +20% level, red zone stop -> entry.
+// The zone that decided the trade is shaded stronger. The label carries % and R after costs.
 hDraw  = hExit and i_showHist
-hTop   = na(hT1) ? hEntry + hRisk : hT1
+hTop   = hUpLvl
 hBoxUp = hDraw ? box.new(hEntryBar, hTop, bar_index, hEntry, border_color=color.new(#12733a, 60), bgcolor=color.new(#12733a, hR > 0 ? 72 : 92)) : na
 hBoxDn = hDraw ? box.new(hEntryBar, hEntry, bar_index, hStop, border_color=color.new(#b3261e, 60), bgcolor=color.new(#b3261e, hR > 0 ? 92 : 72)) : na
-hLbl   = hDraw ? label.new(bar_index, hR > 0 ? hTop : hStop, f_signed(hR, "#.##") + "R · " + f_signed(hPct, "#.#") + "%", style=hR > 0 ? label.style_label_down : label.style_label_up, color=color.new(color.white, 100), textcolor=hR > 0 ? C_GOOD : C_BAD, size=size.tiny, tooltip=str.format("entry {0,number,#.##} · {1} after {2} sessions · T1 {3}", hEntry, hStopX ? "stopped" : "time exit", hSess, hT1Hit ? "hit" : "not hit")) : na
+hLbl   = hDraw ? label.new(bar_index, hR > 0 ? hTop : hStop, f_signed(hPct, "#.#") + "% · " + f_signed(hR, "#.##") + "R", style=hR > 0 ? label.style_label_down : label.style_label_up, color=color.new(color.white, 100), textcolor=hR > 0 ? C_GOOD : C_BAD, size=size.tiny, tooltip=str.format("entry {0,number,#.##} · {1} after {2} sessions · +20% {3} · RSP over the trade {4}", hEntry, hStopX ? "stopped" : "time exit", hSess, hUpHit ? "traded" : "not reached", na(hRspPct) ? "n/a" : f_signed(hRspPct, "#.#") + "%")) : na
 
 hN     := hExit ? hN + 1 : hN
 hUp    := hExit and hR > 0 ? hUp + 1 : hUp
-hT1n   := hExit and hT1Hit ? hT1n + 1 : hT1n
+hUpN   := hExit and hUpHit ? hUpN + 1 : hUpN
 hSumR  := hExit ? hSumR + hR : hSumR
+hSumPct := hExit ? hSumPct + hPct : hSumPct
+hSum63 := hExit ? hSum63 + hPct63 : hSum63
+hRspN  := hExit and not na(hRspPct) ? hRspN + 1 : hRspN
+hSumEx := hExit and not na(hRspPct) ? hSumEx + hPct - hRspPct : hSumEx
 hState := hExit or hSkip ? 0 : hFill ? 2 : hState
 
 // Arm on a qualifying close while flat (a trade that just closed frees the slot). Levels are
-// rounded to cents as analysis.levels() does; T1 is the nearer target, as the ledger sorts them.
+// rounded to cents as analysis.levels() does; the +20% level is from the signal close, as there.
 hArm   = hSignal and hState == 0
-hT1R   = i_tgt1R > 0 and i_tgt2R > 0 ? math.min(i_tgt1R, i_tgt2R) : math.max(i_tgt1R, i_tgt2R)
 hStop  := hArm ? math.round(close - i_stopAtr * atr, 2) : hStop
 hMax   := hArm ? math.round(close + i_chaseAtr * atr, 2) : hMax
-hT1    := hArm ? (hT1R > 0 ? math.round(close + hT1R * i_stopAtr * atr, 2) : na) : hT1
+hUpLvl := hArm ? math.round(close * (1 + UPSIDE_PCT / 100), 2) : hUpLvl
 hState := hArm ? 1 : hState
 
 // The open trade, if any: window to the last bar, R marked at the last CLOSED session
 // (state only moves on confirmed bars, so the forming bar is never mixed in).
-hOpenR  = hState == 2 ? (close[liveOff] - hEntry) / (hEntry - hStop) - COST_FRAC * hEntry / (hEntry - hStop) : na
-hOpenUp = isDaily and barstate.islast and i_showHist and hState == 2 ? box.new(hEntryBar, na(hT1) ? 2 * hEntry - hStop : hT1, bar_index, hEntry, border_color=color.new(#12733a, 60), border_style=line.style_dotted, bgcolor=color.new(#12733a, 90)) : na
+hOpenPct = hState == 2 ? 100 * (close[liveOff] / hEntry - 1) - 100 * COST_FRAC : na
+hOpenUp = isDaily and barstate.islast and i_showHist and hState == 2 ? box.new(hEntryBar, hUpLvl, bar_index, hEntry, border_color=color.new(#12733a, 60), border_style=line.style_dotted, bgcolor=color.new(#12733a, 90)) : na
 hOpenDn = isDaily and barstate.islast and i_showHist and hState == 2 ? box.new(hEntryBar, hEntry, bar_index, hStop, border_color=color.new(#b3261e, 60), border_style=line.style_dotted, bgcolor=color.new(#b3261e, 90)) : na
 
 // ============================================================
@@ -290,7 +317,7 @@ hOpenDn = isDaily and barstate.islast and i_showHist and hState == 2 ? box.new(h
 
 refClose   = close[off]
 refAtr     = atr[off]
-stopLvl    = refClose - i_stopAtr * refAtr
+stopLvl    = math.round(refClose - i_stopAtr * refAtr, 2)      // cents, as analysis.levels()
 riskPts    = refClose - stopLvl
 stopPinned = pinOk ? stopLvl : na
 x1         = bar_index - off
@@ -304,20 +331,17 @@ f_levelLabel(bool show, float p, string name, color c) => show and not na(p) ? l
 
 showLv = drawNow and i_showLvls
 pRef   = refClose
-pChase = refClose + i_chaseAtr * refAtr
-pT1    = i_tgt1R > 0 ? refClose + i_tgt1R * riskPts : na
-pT2    = i_tgt2R > 0 ? refClose + i_tgt2R * riskPts : na
+pChase = math.round(refClose + i_chaseAtr * refAtr, 2)
+pUp    = refClose * (1 + UPSIDE_PCT / 100)
 l0 = f_level(showLv, pRef,    "ref close", C_MUTE, true)
 l1 = f_level(showLv, pChase,  "buy up to", C_ACC,  false)
 l2 = f_level(showLv, stopLvl, "stop",      C_BAD,  false)
-l3 = f_level(showLv, pT1,     "T1",        C_GOOD, false)
-l4 = f_level(showLv, pT2,     "T2",        C_GOOD, false)
+l3 = f_level(showLv, pUp,     "+20%",      C_GOOD, true)
 b0 = f_levelLabel(showLv, pRef,    "ref close", C_MUTE)
 b1 = f_levelLabel(showLv, pChase,  "buy up to", C_ACC)
 b2 = f_levelLabel(showLv, stopLvl, "stop " + str.tostring(i_stopAtr) + " ATR", C_BAD)
-b3 = f_levelLabel(showLv, pT1,     str.tostring(i_tgt1R) + "R", C_GOOD)
-b4 = f_levelLabel(showLv, pT2,     str.tostring(i_tgt2R) + "R", C_GOOD)
-// Horizon marker: the last session of the hold.
+b3 = f_levelLabel(showLv, pUp,     str.format("+20% ({0,number,#.#}R, not an exit)", (pUp - refClose) / riskPts), C_GOOD)
+// Planned-hold marker: when the first full review is due.
 lh = showLv ? line.new(x1 + i_horizon, refClose - 0.5 * refAtr, x1 + i_horizon, refClose + 0.5 * refAtr, color=C_LINE, width=2) : na
 
 // ============================================================
@@ -368,16 +392,24 @@ SEP        = i_tall ? "\n" : " · "
 headVal    = not isDaily ? "Daily timeframe required" : pinMissed ? "pin date not on chart: auto" : pinTooOld ? "pin older than 500 bars: auto" : verdict + (reason != "" ? SEP + reason : "")
 headCol    = not isDaily or pinMissed or pinTooOld ? C_WARN : vColor
 earnTxt    = na(earnSess) ? "no date (TV)" : str.format("{0} · ~{1} sess", str.format_time(int(earnT), "MMM d", syminfo.timezone), earnSess) + SEP + "(TV, from today)"
-earnCol    = earnSoon ? C_BAD : not na(earnSess) and earnSess <= i_horizon ? C_WARN : C_MUTE
-hAvgR      = hN > 0 ? hSumR / hN : na
-histOpen   = na(hOpenR) ? "" : SEP + "open " + f_signed(hOpenR, "#.#") + "R"
+// Reports later than 4 sessions are held through; amber marks the half-size window.
+earnCol    = earnSoon ? C_BAD : not na(earnSess) and earnSess < EARN_HALF ? C_WARN : C_MUTE
+stopPct    = 100 * (refClose - stopLvl) / refClose               // from the rounded stop, as levels()["stop_pct"]
+stopWide   = stopPct > MAX_STOP_PCT
+sizePct    = i_riskPct > 0 and stopPct > 0 ? math.min(MAX_POS_PCT, i_riskPct / stopPct * 100 * i_sizeScale * (not na(earnSess) and earnSess < EARN_HALF ? 0.5 : 1.0)) : na
+sizeTxt    = stopWide ? str.format("stop {0,number,#.#}% > 15%:{1}narrow it or skip", stopPct, SEP) : na(sizePct) ? "off" : str.format("{0,number,#.#}% of account", sizePct) + SEP + str.format("stop {0,number,#.#}% · scale {1,number,#.##}{2}{3}", stopPct, i_sizeScale, not na(earnSess) and earnSess < EARN_HALF ? " · half (report)" : "", i_riskPct != 1.0 ? str.format(" · risk {0,number,#.##}% (dashboard: 1%)", i_riskPct) : "")
+sizeCol    = stopWide ? C_BAD : C_ACC
+hAvgPct    = hN > 0 ? hSumPct / hN : na
+hAvg63     = hN > 0 ? hSum63 / hN : na
+hAvgEx     = hRspN > 0 ? hSumEx / hRspN : na
+histOpen   = na(hOpenPct) ? "" : SEP + "open " + f_signed(hOpenPct, "#.#") + "%"
 histNote   = (hN > 0 and hN < LOW_SAMPLE ? "small n" : "") + (pinOk ? (hN > 0 and hN < LOW_SAMPLE ? " · " : "") + "up to today" : "")
-histTxt    = (hN == 0 ? "none in window" : str.format("{0} trades · {1,number,#}% up", hN, 100.0 * hUp / hN) + SEP + str.format("avg {0}R · T1 {1}", f_signed(hAvgR, "#.##"), hT1n)) + (histNote != "" ? SEP + histNote : "") + histOpen
-histCol    = hN < LOW_SAMPLE ? C_MUTE : hAvgR > 0 ? C_GOOD : C_BAD
+histTxt    = (hN == 0 ? "none in window" : str.format("{0} trades · {1,number,#}% up", hN, 100.0 * hUp / hN) + SEP + str.format("avg {0}% (63d {1}%)", f_signed(hAvgPct, "#.#"), f_signed(hAvg63, "#.#")) + SEP + (na(hAvgEx) ? "vs RSP n/a" : "vs RSP " + f_signed(hAvgEx, "#.#") + "% (trade window)") + str.format(" · +20% {0}", hUpN)) + (histNote != "" ? SEP + histNote : "") + histOpen
+histCol    = hN < LOW_SAMPLE ? C_MUTE : nz(hAvgEx, hAvgPct) > 0 ? C_GOOD : C_BAD
 
 panelPos  = i_panelPos == "top_right" ? position.top_right : i_panelPos == "middle_right" ? position.middle_right : i_panelPos == "bottom_right" ? position.bottom_right : i_panelPos == "top_left" ? position.top_left : i_panelPos == "middle_left" ? position.middle_left : position.bottom_left
 panelText = i_panelSize == "tiny" ? size.tiny : i_panelSize == "normal" ? size.normal : size.small
-nRows     = i_compact ? 6 : 14
+nRows     = i_compact ? 7 : 15
 // Tall: one column, each row is a small label cell above its value cell (logical row r ->
 // table rows 2r and 2r+1). Wide: label and value side by side.
 panelRight = str.contains(i_panelPos, "right")
@@ -388,27 +420,27 @@ f_row(int r) => math.min(r, nRows - 1)
 f_key(int r, string k) => table.cell(panel, 0, i_tall ? 2 * f_row(r) : f_row(r), k, text_color=color.new(#9aa2b1, 0), text_size=keyText, text_halign=keyAlign)
 f_val(int r, string v, color c) => table.cell(panel, i_tall ? 0 : 1, i_tall ? 2 * f_row(r) + 1 : f_row(r), v, text_color=c, text_size=panelText, text_halign=i_tall ? keyAlign : text.align_right)
 // Rows render only on the last bar (cheap no-ops elsewhere: empty strings). Compact mode
-// shows rows 0-5 (what you act on) and blanks the context rows 6-13.
+// shows rows 0-6 (what you act on) and blanks the context rows 7-14.
 showP = barstate.islast and i_showPanel
 showD = showP and isDaily
 showX = showD and not i_compact
-// Context rows first: in compact mode they clamp onto row 5 and are then overwritten.
-f_key(6, showX ? "SPY gate" : "")
-f_val(6, showX ? (cRisk ? "risk-on" : "off") : "", cRisk ? C_GOOD : C_WARN)
-f_key(7, showX ? "Trend stack" : "")
-f_val(7, showX ? (cStack ? "yes" : "no") + (sma200Rising[off] ? " · 200d rising" : " · 200d flat") : "", cStack ? C_GOOD : C_WARN)
-f_key(8, showX ? "RS vs SPY" : "")
-f_val(8, showX ? (cRs ? "rising" : "not rising") : "", cRs ? C_GOOD : C_WARN)
-f_key(9, showX ? "To prior-20 high" : "")
-f_val(9, showX ? str.format("{0,number,#.##} ATR", cPrHi) : "", cPrHi <= NEAR_TIGHT ? C_GOOD : C_MUTE)
-f_key(10, showX ? "To 52w high" : "")
-f_val(10, showX ? str.format("{0,number,#.#} ATR", dist52Atr[off]) : "", dist52Atr[off] <= NEAR_52W_ATR ? C_GOOD : C_MUTE)
-f_key(11, showX ? "Base (15d)" : "")
-f_val(11, showX ? str.format("{0,number,#.#} ATR range", baseRangeAtr[off]) : "", C_MUTE)
-f_key(12, showX ? "ATR" : "")
-f_val(12, showX ? str.format("{0,number,#.##}% of price", 100 * atr[off] / close[off]) : "", C_MUTE)
-f_key(13, showX ? "Levels" : "")
-f_val(13, showX ? (pinOk ? str.format("pinned · stop {0} ATR", i_stopAtr) : "auto (pin to match dashboard)") : "", pinOk ? C_ACC : C_MUTE)
+// Context rows first: in compact mode they clamp onto row 6 and are then overwritten.
+f_key(7, showX ? "SPY gate" : "")
+f_val(7, showX ? (cRisk ? "risk-on" : "off") : "", cRisk ? C_GOOD : C_WARN)
+f_key(8, showX ? "Trend stack" : "")
+f_val(8, showX ? (cStack ? "yes" : "no") + (sma200Rising[off] ? " · 200d rising" : " · 200d flat") : "", cStack ? C_GOOD : C_WARN)
+f_key(9, showX ? "RS vs SPY" : "")
+f_val(9, showX ? (cRs ? "rising" : "not rising") : "", cRs ? C_GOOD : C_WARN)
+f_key(10, showX ? "To prior-20 high" : "")
+f_val(10, showX ? str.format("{0,number,#.##} ATR", cPrHi) : "", cPrHi <= NEAR_TIGHT ? C_GOOD : C_MUTE)
+f_key(11, showX ? "To 52w high" : "")
+f_val(11, showX ? str.format("{0,number,#.#} ATR", dist52Atr[off]) : "", dist52Atr[off] <= NEAR_52W_ATR ? C_GOOD : C_MUTE)
+f_key(12, showX ? "Base (15d)" : "")
+f_val(12, showX ? str.format("{0,number,#.#} ATR range", baseRangeAtr[off]) : "", C_MUTE)
+f_key(13, showX ? "ATR" : "")
+f_val(13, showX ? str.format("{0,number,#.##}% of price", 100 * atr[off] / close[off]) : "", C_MUTE)
+f_key(14, showX ? "Levels" : "")
+f_val(14, showX ? (pinOk ? str.format("pinned · stop {0} ATR", i_stopAtr) : "auto (pin to match dashboard)") : "", pinOk ? C_ACC : C_MUTE)
 f_key(0, showP ? header : "")
 f_val(0, showP ? headVal : "", headCol)
 f_key(1, showD ? "Setup" : "")
@@ -419,8 +451,10 @@ f_key(3, showD ? "Extension" : "")
 f_val(3, showD ? str.format("{0,number,#.#} ATR vs EMA21", cExt) : "", cExt > MAX_EXT_ATR ? C_BAD : f_near(cExt, MAX_EXT_ATR) ? C_WARN : C_GOOD)
 f_key(4, showD ? "Next earnings" : "")
 f_val(4, showD ? earnTxt : "", earnCol)
-f_key(5, showD ? "Past signals (net of costs)" : "")
-f_val(5, showD ? histTxt : "", histCol)
+f_key(5, showD ? "Position size" : "")
+f_val(5, showD ? sizeTxt : "", sizeCol)
+f_key(6, showD ? "Past signals (126d, net)" : "")
+f_val(6, showD ? histTxt : "", histCol)
 
 // ============================================================
 // 8. ALERTS — confirmed bars only, with context
