@@ -233,6 +233,11 @@ export interface Ledger {
     by_setup: Record<string, LedgerStats>;
     cost_assumption: string;
   };
+  /** Control arm: every in-context mechanical signal at fixed levels (pipeline/ledger.py). */
+  control?: {
+    all: LedgerStats; picked: LedgerStats; unpicked: LedgerStats;
+    by_setup: Record<string, LedgerStats>; rule: string;
+  };
 }
 
 /** AES-GCM file envelope (see crypto.ts). */

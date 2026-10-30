@@ -14,7 +14,7 @@ Massive's free plan releases the previous session's bars.
   ├─ agent reads market.json + universe.csv, shortlists ≤ 40
   ├─ pipeline enrich    Finnhub news/analyst/metrics + SEC filings for the shortlist
   ├─ agent writes analysis.json (judgment only; no prices)
-  ├─ pipeline publish   validate → derive ATR levels → ledger → encrypt into site/data
+  ├─ pipeline publish   validate → derive ATR levels → ledger + control arm → encrypt into site/data
   └─ pipeline ship      push stonks-data, then stonks → deploy.yml (hashira) → GitHub Pages
 ```
 

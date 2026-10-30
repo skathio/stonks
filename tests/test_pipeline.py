@@ -2,7 +2,9 @@
 import datetime as dt
 import os
 import sys
+import tempfile
 import unittest
+from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -255,3 +257,44 @@ class RepoHygiene(unittest.TestCase):
     def test_local_research_data_stays_ignored(self):
         self.assertTrue(self._ignored("data/AAPL.csv"))
         self.assertTrue(self._ignored(".env"))
+
+
+def control_feat(**overrides):
+    f = {"eligible": True, "close": 100.0, "atr": 2.0, "trend_stack": True, "rs_rising": True,
+         "ext_ema21_atr": 1.5, "tags": ["breakout", "volume_surge"]}
+    f.update(overrides)
+    return f
+
+
+class ControlArm(unittest.TestCase):
+    def test_signal_mirrors_chart_check(self):
+        self.assertEqual(ledger.control_setup(control_feat(), True), "breakout")
+        self.assertEqual(ledger.control_setup(control_feat(tags=["pullback_reclaim"]), True), "pullback_reclaim")
+        self.assertIsNone(ledger.control_setup(control_feat(tags=["breakout"]), True))  # low volume
+        self.assertIsNone(ledger.control_setup(control_feat(), False))  # SPY gate off
+        self.assertIsNone(ledger.control_setup(control_feat(ext_ema21_atr=4.5), True))
+        self.assertIsNone(ledger.control_setup(control_feat(rs_rising=False), True))
+        self.assertIsNone(ledger.control_setup(control_feat(eligible=False), True))
+
+    def _run(self, root, picks, earnings=None):
+        feats = {"AAA": control_feat(), "BBB": control_feat(tags=["pullback_reclaim"]),
+                 "CCC": control_feat(), "DDD": control_feat(tags=[])}
+        days = days_from(dt.date(2026, 10, 29), 1)
+        panel = {t: [(100, 101, 99, 100, 1)] for t in ("AAA", "BBB", "CCC", "SPY")}
+        with mock.patch.object(history, "load_panel", return_value=(days, panel)):
+            return daily._update_control(root, "2026-10-29", feats, True, earnings or {}, {}, picks,
+                                         "2026-10-30T06:05:00+00:00")
+
+    def test_tracks_signals_with_fixed_levels_and_picked_flag(self):
+        with tempfile.TemporaryDirectory() as root:
+            rows = self._run(root, [{"as_of": "2026-10-29", "ticker": "AAA"}],
+                             earnings={"CCC": {"next": {"sessions_away": 2}}})
+            self.assertEqual([(r["ticker"], r["setup"], r["picked"]) for r in rows],
+                             [("AAA", "breakout", True), ("BBB", "pullback_reclaim", False)])
+            self.assertEqual(rows[0]["stop"], 96.0)  # 2 ATR
+            self.assertEqual(rows[0]["entry_max"], 101.0)  # +0.5 ATR
+            # A re-publish with a different pick moves the flag but keeps the rows.
+            rows = self._run(root, [{"as_of": "2026-10-29", "ticker": "BBB"}])
+            self.assertEqual({r["ticker"]: r["picked"] for r in rows}, {"AAA": False, "BBB": True, "CCC": False})
+            s = ledger.control_stats(rows)
+            self.assertEqual((s["all"]["picks"], s["picked"]["picks"], s["unpicked"]["picks"]), (3, 1, 2))
