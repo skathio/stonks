@@ -52,7 +52,7 @@ def control_setup(feat, risk_on):
     return "pullback_reclaim" if "pullback_reclaim" in tags else None
 
 
-def new_pick(as_of, candidate, lv, feat, sector, published_utc):
+def new_pick(as_of, candidate, lv, feat, sector, published_utc, size_scale=None):
     return {
         "id": f"{as_of}:{candidate['ticker']}",
         "as_of": as_of, "published_utc": published_utc, "ticker": candidate["ticker"], "sector": sector,
@@ -63,6 +63,9 @@ def new_pick(as_of, candidate, lv, feat, sector, published_utc):
         "status": "pending", "entry_date": None, "entry": None,
         "r": {}, "spy_pct": {}, "mfe_r": None, "mae_r": None,
         "exit_date": None, "exit_r": None, "exit_reason": None, "tags": feat.get("tags", []),
+        # Momentum-health size scale that day (features.momentum_health): recorded, never applied
+        # to R, so the live ledger can test scaled vs unscaled results later.
+        "size_scale": size_scale,
     }
 
 

@@ -148,6 +148,7 @@ def prepare(root, update_history=True):
                             "pct_trend_stack": round(100 * sum(feats[t]["trend_stack"] for t in members_in) / len(members_in), 1)
                             if members_in else None})
     breadth = feat_mod.breadth(panel, list(feats), days)
+    momentum = feat_mod.momentum_health(panel["MTUM"], panel["SPY"], panel["RSP"])
     macro = _macro()
     vix = macro.get("vix", {}).get("value")
     earnings = build_earnings(as_of, list(feats))
@@ -167,7 +168,7 @@ def prepare(root, update_history=True):
         "sessions_stored": len(days),
         "universe": {"scan_members": len(scan), "with_features": len(feats),
                      "eligible": sum(f["eligible"] for f in feats.values())},
-        "benchmarks": benchmarks, "sectors": sectors, "breadth": breadth, "macro": macro,
+        "benchmarks": benchmarks, "sectors": sectors, "breadth": breadth, "macro": macro, "momentum": momentum,
         "baseline_regime": feat_mod.baseline_regime(benchmarks["SPY"], breadth, vix),
         "tag_counts": _tag_counts(feats),
         "data_quality": {
@@ -298,12 +299,14 @@ def publish(root, as_of=None, encrypt=True):
         item["close"] = feats[item["ticker"]]["close"]
 
     published_utc = dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")
-    picks = _update_ledger(root, as_of, result, feats, published_utc)
+    scale = (market.get("momentum") or {}).get("size_scale")
+    picks = _update_ledger(root, as_of, result, feats, published_utc, scale)
     risk_on = bool((market["benchmarks"].get("SPY") or {}).get("risk_on_gate"))
-    control = _update_control(root, as_of, feats, risk_on, earnings, members, picks, published_utc)
+    control = _update_control(root, as_of, feats, risk_on, earnings, members, picks, published_utc, scale)
     day_payload = {"as_of": as_of, "generated_utc": published_utc,
                    "analysis": result,
                    "market": {k: market[k] for k in ("benchmarks", "sectors", "macro", "baseline_regime", "universe", "tag_counts")},
+                   "momentum": market.get("momentum"),
                    "breadth": market["breadth"]}
     dash = os.path.join(root, "dashboard")
     write_json(os.path.join(dash, "days", f"{as_of}.json"), day_payload, compact=True)
@@ -317,16 +320,16 @@ def publish(root, as_of=None, encrypt=True):
     return dash
 
 
-def _update_ledger(root, as_of, result, feats, published_utc):
+def _update_ledger(root, as_of, result, feats, published_utc, scale=None):
     path = os.path.join(root, "ledger.json")
     picks = {p["id"]: p for p in read_json(path, [])}
     for c in result["candidates"]:
-        pick = ledger.new_pick(as_of, c, c["levels"], feats[c["ticker"]], c["sector"], published_utc)
+        pick = ledger.new_pick(as_of, c, c["levels"], feats[c["ticker"]], c["sector"], published_utc, scale)
         picks.setdefault(pick["id"], pick)  # a re-publish never rewrites a past call
     return _evaluate_and_write(root, path, picks)
 
 
-def _update_control(root, as_of, feats, risk_on, earnings, members, picks, published_utc):
+def _update_control(root, as_of, feats, risk_on, earnings, members, picks, published_utc, scale=None):
     """Track every in-context mechanical signal of `as_of` at fixed levels (see ledger.py).
     Same hard earnings rule as candidates. `picked` follows the ledger, so a re-publish
     keeps it in step; outcomes are never rewritten."""
@@ -341,7 +344,7 @@ def _update_control(root, as_of, feats, risk_on, earnings, members, picks, publi
         c = {"ticker": ticker, "setup": setup, "conviction": 0, "stop_atr": ledger.CONTROL_STOP_ATR,
              "max_chase_atr": ledger.CONTROL_CHASE_ATR, "targets_r": ledger.CONTROL_TARGETS_R}
         sector = members.get(ticker, {}).get("sector", "Unknown")
-        row = ledger.new_pick(as_of, c, analysis_mod.levels(c, f), f, sector, published_utc)
+        row = ledger.new_pick(as_of, c, analysis_mod.levels(c, f), f, sector, published_utc, scale)
         rows.setdefault(row["id"], row)
     for r in rows.values():
         if r["as_of"] == as_of:

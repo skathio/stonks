@@ -144,3 +144,28 @@ export function earningsChip(earnings: Earnings | null | undefined, horizon: unk
   const inside = isNum(n) && isNum(horizon) && n <= horizon;
   return { text: `Earnings ${shortDate(earnings.date)} · ${n}d${earnings.conflict ? " ⚠" : ""}`, tone: inside ? "warn" : "muted", inside };
 }
+
+/** Size multiplier text: 0.23 -> "×0.23". */
+export function fmtScale(x: unknown): string {
+  return isNum(x) ? `×${x.toFixed(2)}` : DASH;
+}
+
+/** Tone for the momentum size scale: full size is good, under half is bad. */
+export function scaleTone(x: unknown): Tone {
+  if (!isNum(x)) return "muted";
+  return x >= 0.8 ? "good" : x >= 0.5 ? "warn" : "bad";
+}
+
+/** Shared axis [min, max] (percent from close) for the pick ladders, always spanning 0. */
+export function ladderAxis(values: number[]): [number, number] {
+  const finite = values.filter(isNum);
+  const lo = Math.min(0, ...finite);
+  const hi = Math.max(0, ...finite);
+  const pad = (hi - lo || 1) * 0.04;
+  return [lo - pad, hi + pad];
+}
+
+/** Position of `x` on an axis as 0..100 (clamped). */
+export function axisPos(x: number, [lo, hi]: [number, number]): number {
+  return hi === lo ? 50 : Math.min(100, Math.max(0, (100 * (x - lo)) / (hi - lo)));
+}

@@ -4,6 +4,7 @@ import { test } from "node:test";
 import {
   convictionDots, earningsNote, fmtNum, fmtPct, fmtPrice, fmtR, isNum, regimeInfo, routeFromHash, safeUrl,
   setupLabel, signClass, statusLabel, tradingViewUrl,
+  axisPos, fmtScale, ladderAxis, scaleTone,
 } from "../site/src/lib/format.ts";
 
 test("number formatting handles missing values", () => {
@@ -87,4 +88,22 @@ test("pctFrom, firstSentence, shortDate, earningsChip", async () => {
   assert.equal(soon.inside, true);
   assert.match(soon.text, /Thu Nov 5 · 5d ⚠/);
   assert.equal(earningsChip({ date: "2026-12-20", sessions_away: 36 }, 20).inside, false);
+});
+
+test("momentum size scale formatting and tone", () => {
+  assert.equal(fmtScale(0.234), "×0.23");
+  assert.equal(fmtScale(null), "—");
+  assert.equal(scaleTone(1), "good");
+  assert.equal(scaleTone(0.6), "warn");
+  assert.equal(scaleTone(0.23), "bad");
+  assert.equal(scaleTone(undefined), "muted");
+});
+
+test("ladder axis spans zero and positions clamp", () => {
+  const axis = ladderAxis([-5, 12]);
+  assert.ok(axis[0] < -5 && axis[1] > 12);
+  assert.deepEqual(ladderAxis([2, 3]).map((x) => x <= 0), [true, false]);  // always includes the close
+  assert.equal(axisPos(-100, axis), 0);
+  assert.equal(axisPos(100, axis), 100);
+  assert.ok(axisPos(0, axis) > 0 && axisPos(0, axis) < 50);
 });

@@ -189,6 +189,29 @@ if __name__ == "__main__":
     unittest.main()
 
 
+class MomentumHealth(unittest.TestCase):
+    @staticmethod
+    def _bars(closes):
+        return [(c, c, c, c, 1e6) for c in closes]
+
+    def test_calm_spread_caps_scale_at_one(self):
+        spy = [100 * 1.001 ** i for i in range(200)]
+        mtum = [100 * 1.0012 ** i for i in range(200)]  # constant spread: ~zero spread vol
+        out = features.momentum_health(self._bars(mtum), self._bars(spy), self._bars(spy))
+        self.assertEqual(out["size_scale"], 1.0)
+        self.assertGreater(out["mtum_vs_spy_63d_pct"], 0)
+
+    def test_volatile_spread_sizes_down(self):
+        spy = [100.0] * 200
+        mtum = [100 * (1.02 if i % 2 else 0.98) for i in range(200)]  # 2% daily swings vs flat SPY
+        out = features.momentum_health(self._bars(mtum), self._bars(spy), self._bars(spy))
+        self.assertLess(out["size_scale"], 0.2)
+
+    def test_short_history_is_none(self):
+        bars = self._bars([100.0] * features.MOM_VOL_LEN)
+        self.assertIsNone(features.momentum_health(bars, bars, bars))
+
+
 class HistoryBreak(unittest.TestCase):
     def test_ticker_reuse_is_cut(self):
         bars = [(10, 10, 10, 10, 1)] * 5 + [None] + [(150, 151, 149, 150, 1)] * 3
