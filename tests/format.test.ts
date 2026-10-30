@@ -107,3 +107,17 @@ test("ladder axis spans zero and positions clamp", () => {
   assert.equal(axisPos(100, axis), 100);
   assert.ok(axisPos(0, axis) > 0 && axisPos(0, axis) < 50);
 });
+
+test("v2 helpers: next report, months, flags", async () => {
+  const { nextReport, sessionsToMonths, flagInfo, actionTone } = await import("../site/src/lib/format.ts");
+  assert.equal(nextReport(null, 2).text, "Next report: no date");
+  const est = nextReport({ date: "2027-01-28", sessions_away: 60, estimated: true }, 2);
+  assert.match(est.text, /\(est\.\), 60 sessions; 2 reports in the hold/);
+  assert.equal(est.tone, "muted");
+  assert.equal(nextReport({ date: "2026-11-10", sessions_away: 8 }, 1).tone, "warn");  // starter-size window
+  assert.equal(sessionsToMonths(84), "about 4 months");
+  assert.equal(sessionsToMonths(21), "about 1 month");
+  assert.equal(flagInfo("near_stop").tone, "bad");
+  assert.equal(flagInfo("unknown").text, "unknown");
+  assert.equal(actionTone("exit"), "bad");
+});

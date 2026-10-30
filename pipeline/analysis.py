@@ -2,18 +2,31 @@
 # The agent's output contract (runs/<as_of>/analysis.json) and the levels the
 # pipeline derives from it.
 #
-# The agent supplies judgment: which names, why, conviction, and stop/target
-# sizing in ATR multiples. The pipeline supplies every price: stop, chase
-# limit and targets are computed here from the stored close and ATR. Any
-# price the agent writes is ignored, so an arithmetic slip can't reach the
-# dashboard or the track record.
+# The agent supplies judgment: which names, why, conviction, and the stop
+# width in ATR multiples. The pipeline supplies every price and size: stop,
+# chase limit, the +20% reference level and the position size are computed
+# here from the stored close and ATR. Any price the agent writes is ignored,
+# so an arithmetic slip can't reach the dashboard or the track record.
+#
+# Contract v2 (2026-10-30): position trades held 2-6 months. Wide catastrophic
+# stop, no profit targets, at most two new positions a day, and a review line
+# for any held position the agent wants to comment on.
 # =============================================================================
 import re
+
+from . import ledger
 
 REGIME_LABELS = ("risk_on", "neutral", "risk_off")
 EXPOSURE = ("full", "reduced", "minimal", "none")
 SETUPS = ("breakout", "squeeze", "pullback_reclaim", "base", "other")
-MAX_CANDIDATES, MAX_WATCH, MAX_AVOID = 12, 25, 20
+CONTRACT = "v2"
+MAX_CANDIDATES, MAX_WATCH, MAX_AVOID, MAX_REVIEWS = 2, 25, 20, 15
+REVIEW_ACTIONS = ("hold", "trim", "exit", "add")
+STOP_ATR_RANGE, CHASE_ATR_RANGE, HORIZON_RANGE = (3.0, 6.0), (0.0, 1.5), (42, 126)
+MAX_STOP_PCT = 15.0          # a stop wider than this from the close is not a stop
+RISK_PER_TRADE_PCT = 1.0     # account % lost at the stop, before the momentum size scale
+MAX_POSITION_PCT = 15.0
+EARNINGS_HALF_SIZE_SESSIONS = 15  # a report this close: half size, so a gap can't double the risk
 TICKER_RE = re.compile(r"^[A-Z][A-Z0-9.\-]{0,9}$")
 DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
@@ -71,12 +84,16 @@ def _str_list(obj, key, where, max_items, max_len, required=True):
     return out
 
 
-def validate(raw, as_of, features):
-    """Return a normalized copy of the analysis or raise AnalysisError listing the first problem."""
+def validate(raw, as_of, features, held=()):
+    """Return a normalized copy of the analysis or raise AnalysisError listing the first problem.
+
+    `held`: tickers with an open position (the agent reviews them; it can't open them again)."""
     if not isinstance(raw, dict):
         raise AnalysisError("analysis must be a JSON object")
     if raw.get("as_of") != as_of:
         raise AnalysisError(f"as_of must be '{as_of}' (the last closed session), got {raw.get('as_of')!r}")
+    if raw.get("contract") != CONTRACT:
+        raise AnalysisError(f"contract must be '{CONTRACT}' (position trades; see agent/PROMPT.md)")
 
     reg = _req(raw, "regime", dict, "analysis")
     regime = {
@@ -103,13 +120,12 @@ def validate(raw, as_of, features):
             raise AnalysisError(f"{where}.ticker: {ticker} fails the price/liquidity floor")
         if ticker in seen:
             raise AnalysisError(f"{where}.ticker: duplicate {ticker}")
+        if ticker in held:
+            raise AnalysisError(f"{where}.ticker: {ticker} is already held (review it under 'reviews' instead)")
         seen.add(ticker)
         setup = _text(c, "setup", where, 30)
         if setup not in SETUPS:
             raise AnalysisError(f"{where}.setup must be one of {SETUPS}")
-        targets = _req(c, "targets_r", list, where)
-        if not 1 <= len(targets) <= 3 or not all(isinstance(t, (int, float)) and 1.0 <= t <= 10.0 for t in targets):
-            raise AnalysisError(f"{where}.targets_r: 1-3 numbers between 1 and 10 (R multiples)")
         catalysts = []
         for j, cat in enumerate(c.get("catalysts", [])[:6]):
             cw = f"{where}.catalysts[{j}]"
@@ -124,18 +140,23 @@ def validate(raw, as_of, features):
             "ticker": ticker, "setup": setup,
             "conviction": int(_num(c, "conviction", where, 1, 5)),
             "thesis": _text(c, "thesis", where, 1500),
-            "stop_atr": _num(c, "stop_atr", where, 1.0, 4.0),
-            "max_chase_atr": _num(c, "max_chase_atr", where, 0.0, 2.0),
-            "targets_r": sorted(float(t) for t in targets),
-            "horizon_sessions": int(_num(c, "horizon_sessions", where, 5, 60)),
+            "stop_atr": _num(c, "stop_atr", where, *STOP_ATR_RANGE),
+            "max_chase_atr": _num(c, "max_chase_atr", where, *CHASE_ATR_RANGE),
+            "horizon_sessions": int(_num(c, "horizon_sessions", where, *HORIZON_RANGE)),
+            "upside_case": _text(c, "upside_case", where, 600),
             "invalidation": _text(c, "invalidation", where, 400),
             "risks": _str_list(c, "risks", where, 6, 300),
             "chart_checks": _str_list(c, "chart_checks", where, 6, 200, required=False),
-            "earnings_plan": _text(c, "earnings_plan", where, 300, required=False),
+            "earnings_plan": _text(c, "earnings_plan", where, 300),
             "catalysts": catalysts,
         })
     if len(candidates) > MAX_CANDIDATES:
-        raise AnalysisError(f"at most {MAX_CANDIDATES} candidates")
+        raise AnalysisError(f"at most {MAX_CANDIDATES} new positions a day (put the rest on the watchlist)")
+    for c in candidates:
+        stop_pct = c["stop_atr"] * features[c["ticker"]]["atr"] / features[c["ticker"]]["close"] * 100
+        if stop_pct > MAX_STOP_PCT:
+            raise AnalysisError(f"{c['ticker']}: a {c['stop_atr']} ATR stop is {stop_pct:.1f}% below the close "
+                                f"(max {MAX_STOP_PCT}%); narrow it or skip the name")
     if regime["exposure"] == "none" and candidates:
         raise AnalysisError("regime.exposure is 'none' but candidates were listed")
 
@@ -153,10 +174,28 @@ def validate(raw, as_of, features):
             raise AnalysisError(f"at most {cap} {key} entries")
         return out
 
+    reviews = []
+    for i, item in enumerate(raw.get("reviews", [])):
+        where = f"reviews[{i}]"
+        if not isinstance(item, dict):
+            raise AnalysisError(f"{where}: must be an object")
+        ticker = _text(item, "ticker", where, 10).upper()
+        if ticker not in held:
+            raise AnalysisError(f"{where}.ticker: {ticker} is not an open position")
+        action = _text(item, "action", where, 10)
+        if action not in REVIEW_ACTIONS:
+            raise AnalysisError(f"{where}.action must be one of {REVIEW_ACTIONS}")
+        reviews.append({"ticker": ticker, "action": action, "note": _text(item, "note", where, 400)})
+    if len(reviews) > MAX_REVIEWS:
+        raise AnalysisError(f"at most {MAX_REVIEWS} reviews")
+
     return {
         "as_of": as_of,
+        "contract": CONTRACT,
+        "prompt_version": _text(raw, "prompt_version", "analysis", 20),
         "regime": regime,
         "candidates": candidates,
+        "reviews": reviews,
         "watchlist": _named_list("watchlist", MAX_WATCH, (("trigger", 300), ("note", 400))),
         "avoid": _named_list("avoid", MAX_AVOID, (("reason", 300),)),
         "market_notes": _str_list(raw, "market_notes", "analysis", 8, 400, required=False),
@@ -165,15 +204,29 @@ def validate(raw, as_of, features):
 
 
 def levels(candidate, feat):
-    """Prices derived from the last close and ATR. Long-only."""
+    """Prices derived from the last close and ATR. Long-only. `targets` holds the +20% reference
+    level (a marker for the ledger, never an exit) and `targets_r` its distance in R."""
     close, atr = feat["close"], feat["atr"]
     stop = close - candidate["stop_atr"] * atr
     risk = close - stop
+    upside = close * (1 + ledger.UPSIDE_REF_PCT / 100)
     return {
         "ref_close": round(close, 2),
         "atr": round(atr, 3),
         "stop": round(stop, 2),
         "stop_pct": round(100 * (stop / close - 1), 2),
         "entry_max": round(close + candidate["max_chase_atr"] * atr, 2),
-        "targets": [round(close + r * risk, 2) for r in candidate["targets_r"]],
+        "targets": [round(upside, 2)],
+        "targets_r": [round((upside - close) / risk, 2)],
     }
+
+
+def position_size(stop_pct, size_scale, earn_sessions):
+    """Account % to put in the position: RISK_PER_TRADE_PCT lost at the stop, times the momentum
+    size scale, halved when a report is under EARNINGS_HALF_SIZE_SESSIONS away, capped."""
+    if not stop_pct:
+        return None
+    size = RISK_PER_TRADE_PCT / abs(stop_pct) * 100 * (size_scale if size_scale is not None else 1.0)
+    if earn_sessions is not None and earn_sessions < EARNINGS_HALF_SIZE_SESSIONS:
+        size /= 2
+    return round(min(MAX_POSITION_PCT, size), 1)

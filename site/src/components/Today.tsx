@@ -1,10 +1,10 @@
 // Today / archive view: the brief first (regime, size, picks), market context in a side rail.
 import { useState, type ReactNode } from "react";
 import {
-  axisPos, convictionDots, earningsChip, firstSentence, fmtNum, fmtPct, fmtPrice, fmtScale, ladderAxis, pctFrom,
-  regimeInfo, scaleTone, setupLabel, shortDate, tradingViewUrl,
+  actionTone, axisPos, convictionDots, earningsChip, firstSentence, flagInfo, fmtNum, fmtPct, fmtPrice, fmtScale,
+  ladderAxis, nextReport, pctFrom, regimeInfo, scaleTone, sessionsToMonths, setupLabel, shortDate, tradingViewUrl,
 } from "../lib/format.ts";
-import type { Candidate, Day, Momentum, Tone } from "../lib/types.ts";
+import type { BookLimits, Candidate, Day, Momentum, Position, Tone } from "../lib/types.ts";
 import { Bullets, Button, Card, ExtLink, Fold, Icon, Num, Pill, Rows, Stat, SubHead, toneText, useMedia } from "./ui.tsx";
 
 const BAND: Record<Tone, string> = { good: "border-l-good", warn: "border-l-warn", bad: "border-l-bad", muted: "border-l-line" };
@@ -28,6 +28,8 @@ function SizeBand({ m }: { m: Momentum }) {
 }
 
 function Brief({ day, pickCount }: { day: Day; pickCount: number }) {
+  const held = day.book?.length;
+  const limits = day.limits;
   const regime = day.analysis.regime;
   const info = regimeInfo(regime.label);
   const spy = day.market.benchmarks["SPY"];
@@ -43,7 +45,10 @@ function Brief({ day, pickCount }: { day: Day; pickCount: number }) {
     <Card className="mb-5 lg:p-5">
       <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1">
         <Pill tone={info.tone} strong>{info.label}</Pill>
-        <span className="text-sm text-muted">Exposure {regime.exposure}, {pickCount} pick{pickCount === 1 ? "" : "s"}</span>
+        <span className="text-sm text-muted">
+          Exposure {regime.exposure}, {limits ? `${pickCount} new position${pickCount === 1 ? "" : "s"}, ${held ?? 0} of ${limits.max_open} open`
+            : `${pickCount} pick${pickCount === 1 ? "" : "s"}`}
+        </span>
       </div>
       <p className="mt-2.5 text-lg font-semibold leading-snug lg:text-xl">{firstSentence(regime.summary)}</p>
       {day.momentum && <SizeBand m={day.momentum} />}
@@ -134,7 +139,9 @@ function PickDetails({ c }: { c: Candidate }) {
         <Rows items={[
           ["Last close", fmtPrice(lv.ref_close)],
           [`Stop (${c.stop_atr} ATR)`, `${fmtPrice(lv.stop)} (${fmtPct(lv.stop_pct)})`],
-          ["Targets", lv.targets.map((t, i) => `${fmtPrice(t)} (${c.targets_r[i]}R)`).join(", ")],
+          [c.upside_case != null ? "+20% reference" : "Targets",
+            lv.targets.map((t, i) => `${fmtPrice(t)} (${fmtNum(lv.targets_r?.[i] ?? c.targets_r?.[i], 1)}R)`).join(", ")],
+          ...(lv.position_pct != null ? [["Position size", `${fmtNum(lv.position_pct, 1)}% of the account`] as const] : []),
           ["ATR", `${fmtPrice(lv.atr)} (${fmtPct(f.atr_pct, 1, false)})`],
         ]} />
         <SubHead>Setup data</SubHead>
@@ -166,8 +173,9 @@ function PickCard({ c, axis }: { c: Candidate; axis: [number, number] }) {
   const [open, setOpen] = useState(false);
   const lv = c.levels;
   const f = c.features;
-  const e = earningsChip(c.earnings, c.horizon_sessions);
-  const t2 = lv.targets.length > 1;
+  const v2 = c.upside_case != null;
+  const e = v2 ? nextReport(c.earnings, c.reports_in_hold) : earningsChip(c.earnings, c.horizon_sessions);
+  const cols = 2 + lv.targets.length + (lv.position_pct != null ? 1 : 0);
   return (
     <Card className="lg:p-5">
       <header className="flex items-start justify-between gap-3">
@@ -183,19 +191,28 @@ function PickCard({ c, axis }: { c: Candidate; axis: [number, number] }) {
         </span>
       </header>
       <Ladder c={c} axis={axis} />
-      <div className={`grid gap-2 ${t2 ? "grid-cols-4" : "grid-cols-3"}`}>
+      <div className={`grid gap-2 ${cols >= 4 ? "grid-cols-4" : "grid-cols-3"}`}>
         <Level label="Stop" color="var(--color-risk)" price={lv.stop} pct={pctFrom(lv.ref_close, lv.stop)} />
         <Level label="Buy up to" color="var(--color-chase)" price={lv.entry_max} pct={pctFrom(lv.ref_close, lv.entry_max)} />
         {lv.targets.map((t, i) => (
-          <Level key={i} label={`Target ${c.targets_r[i]}R`} color="var(--color-reward)" price={t} pct={pctFrom(lv.ref_close, t)} />
+          <Level key={i} label={v2 ? "+20%" : `Target ${c.targets_r?.[i] ?? ""}R`} color="var(--color-reward)" price={t}
+            pct={pctFrom(lv.ref_close, t)} />
         ))}
+        {lv.position_pct != null && (
+          <div className="flex min-w-0 flex-col">
+            <span className="text-xs text-muted">Size</span>
+            <span className="font-bold tabular">{fmtNum(lv.position_pct, 1)}%</span>
+            <span className="text-xs text-muted">of account</span>
+          </div>
+        )}
       </div>
       <p className="mt-3 flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted">
         {e.inside ? <Pill tone="warn" strong>{e.text}</Pill> : <span>{e.text}</span>}
-        <span>Hold up to {c.horizon_sessions} sessions</span>
+        <span>{v2 ? `Plan ${sessionsToMonths(c.horizon_sessions)}` : `Hold up to ${c.horizon_sessions} sessions`}</span>
         <span>RS rank {fmtNum(f.rs_rank, 0)}{f.rs_rising ? ", rising" : ""}</span>
       </p>
       <p className={`mt-2.5 max-w-prose text-[0.95rem] ${open ? "" : "line-clamp-2"}`}>{c.thesis}</p>
+      {v2 && open && <p className="mt-2 max-w-prose text-sm"><span className="font-semibold">What 20%+ needs: </span>{c.upside_case}</p>}
       <div className="mt-3 flex gap-2">
         <Button href={tradingViewUrl(c.ticker)} className="flex-1 lg:flex-none">Chart <Icon name="external" className="h-4 w-4" /></Button>
         <button type="button" onClick={() => setOpen((v) => !v)} aria-expanded={open}
@@ -207,6 +224,52 @@ function PickCard({ c, axis }: { c: Candidate; axis: [number, number] }) {
       {open && <PickDetails c={c} />}
     </Card>
   );
+}
+
+function PositionRow({ p }: { p: Position }) {
+  const m = p.mark;
+  const exRsp = m && m.rsp_pct != null ? m.pct - m.rsp_pct : null;
+  const report = p.next_earnings ? nextReport(p.next_earnings, null) : null;
+  return (
+    <li className="list-none py-3 first:pt-0 last:pb-0">
+      <div className="flex items-baseline gap-2.5">
+        <ExtLink href={tradingViewUrl(p.ticker)} className="text-lg font-extrabold text-ink no-underline hover:text-accent">{p.ticker}</ExtLink>
+        <span className="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap text-xs text-muted">
+          {p.sector}, since {shortDate(p.entry_date ?? p.as_of)}{m ? `, ${m.sessions} sessions` : ", awaiting entry"}
+        </span>
+        <span className="ml-auto text-right">
+          <Num value={m?.pct} className="font-bold" />
+          {exRsp != null && <span className="block text-xs text-muted">vs RSP <Num value={exRsp} /></span>}
+        </span>
+      </div>
+      <p className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted">
+        <span>Stop {fmtPrice(p.stop)} ({fmtPct(p.stop_dist_pct)})</span>
+        {p.position_pct != null && <span>Size {fmtNum(p.position_pct, 1)}%</span>}
+        {report && <span>{report.text}</span>}
+      </p>
+      {(p.flags.length > 0 || p.review) && (
+        <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+          {p.review && <Pill tone={actionTone(p.review.action) === "muted" ? "accent" : actionTone(p.review.action)} strong>
+            {p.review.action[0]?.toUpperCase()}{p.review.action.slice(1)}</Pill>}
+          {p.flags.map((f) => { const info = flagInfo(f); return <Pill key={f} tone={info.tone}>{info.text}</Pill>; })}
+        </div>
+      )}
+      {p.review && <p className="mt-1.5 max-w-prose text-sm">{p.review.note}</p>}
+    </li>
+  );
+}
+
+function Book({ book, limits }: { book: Position[]; limits: BookLimits }) {
+  const sorted = [...book].sort((a, b) => (b.mark?.pct ?? -999) - (a.mark?.pct ?? -999));
+  return (<>
+    <h2 className="mx-0.5 mb-2.5 flex flex-wrap items-baseline gap-x-2 text-lg font-bold">
+      Open positions <span className="text-xs font-normal text-muted">{book.length} of {limits.max_open}, at most {limits.max_per_sector} per sector</span>
+    </h2>
+    <Card className="mb-5">
+      {sorted.length ? <ul className="m-0 divide-y divide-line pl-0">{sorted.map((p) => <PositionRow key={p.ticker} p={p} />)}</ul>
+        : <p className="text-sm text-muted">No open positions yet. New positions appear here from the first open after they're published.</p>}
+    </Card>
+  </>);
 }
 
 interface TickerItem {
@@ -323,13 +386,18 @@ export default function Today({ day }: { day: Day }) {
     <div className="lg:grid lg:grid-cols-[minmax(0,1fr)_22rem] lg:items-start lg:gap-6">
       <div>
         <Brief day={day} pickCount={picks.length} />
-        <h2 className="mx-0.5 mb-2.5 flex items-baseline gap-2 text-lg font-bold">
-          Picks <span className="text-xs font-normal text-muted">by conviction, levels from the {shortDate(day.as_of)} close</span>
+        {day.book && day.limits && <Book book={day.book} limits={day.limits} />}
+        <h2 className="mx-0.5 mb-2.5 flex flex-wrap items-baseline gap-x-2 text-lg font-bold">
+          {day.limits ? "New positions" : "Picks"}
+          <span className="text-xs font-normal text-muted">by conviction, levels from the {shortDate(day.as_of)} close</span>
         </h2>
         {picks.length ? (
           <div className="space-y-3">{picks.map((c) => <PickCard key={c.ticker} c={c} axis={axis} />)}</div>
         ) : (
-          <Card className="text-muted">No picks today. That's a valid answer: nothing met the bar.</Card>
+          <Card className="text-muted">
+            {day.limits ? "No new position today. That's the default: nothing beat what the book already holds."
+              : "No picks today. That's a valid answer: nothing met the bar."}
+          </Card>
         )}
       </div>
       <aside className="mt-5 lg:mt-0" aria-label="Market context">
