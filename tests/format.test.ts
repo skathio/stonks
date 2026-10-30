@@ -4,7 +4,7 @@ import { test } from "node:test";
 import {
   convictionDots, earningsNote, fmtNum, fmtPct, fmtPrice, fmtR, isNum, regimeInfo, routeFromHash, safeUrl,
   setupLabel, signClass, statusLabel, tradingViewUrl,
-} from "../site/src/lib/format.js";
+} from "../site/src/lib/format.ts";
 
 test("number formatting handles missing values", () => {
   assert.equal(isNum(NaN), false);
@@ -73,7 +73,7 @@ test("routeFromHash", () => {
 });
 
 test("pctFrom, firstSentence, shortDate, earningsChip", async () => {
-  const { pctFrom, firstSentence, shortDate, earningsChip } = await import("../site/src/lib/format.js");
+  const { pctFrom, firstSentence, shortDate, earningsChip } = await import("../site/src/lib/format.ts");
   assert.equal(pctFrom(100, 110), 10);
   assert.equal(pctFrom(0, 5), null);
   assert.equal(pctFrom(null, 5), null);

@@ -1,14 +1,21 @@
 // App shell: unlock, hash routing, header + tab bar.
-import { useCallback, useEffect, useState } from "react";
-import { routeFromHash, shortDate } from "./lib/format.js";
-import { applyTheme, loadTheme, nextTheme } from "./lib/theme.js";
-import { acceptKey, fetchKeyInfo, forgetKey, hashHasKey, makeLoader, restoreKey } from "./lib/vault.js";
-import Record from "./components/Record.jsx";
-import Today from "./components/Today.jsx";
-import { Card } from "./components/ui.jsx";
+import { useCallback, useEffect, useState, type FormEvent, type ReactNode } from "react";
+import { routeFromHash, shortDate, type Route } from "./lib/format.ts";
+import { applyTheme, loadTheme, nextTheme, type Theme } from "./lib/theme.ts";
+import type { Day, DashboardIndex, KeyInfo, Ledger } from "./lib/types.ts";
+import { acceptKey, fetchKeyInfo, forgetKey, hashHasKey, makeLoader, restoreKey, type Loader } from "./lib/vault.ts";
+import Record from "./components/Record.tsx";
+import Today from "./components/Today.tsx";
+import { Card } from "./components/ui.tsx";
 
-function useHashRoute() {
-  const [route, setRoute] = useState(() => routeFromHash(location.hash));
+type Phase = "loading" | "empty" | "locked" | "ready" | "error";
+type View = { kind: "record"; ledger: Ledger } | { kind: "day"; date: string; day: Day; missing: boolean };
+type Section = "today" | "record" | "archive";
+
+const errorText = (err: unknown): string => (err instanceof Error ? err.message : String(err));
+
+function useHashRoute(): Route {
+  const [route, setRoute] = useState<Route>(() => routeFromHash(location.hash));
   useEffect(() => {
     const onHash = () => setRoute(routeFromHash(location.hash));
     window.addEventListener("hashchange", onHash);
@@ -17,10 +24,10 @@ function useHashRoute() {
   return route;
 }
 
-function Lock({ keyinfo, onUnlock }) {
+function Lock({ keyinfo, onUnlock }: { keyinfo: KeyInfo; onUnlock: (key: CryptoKey) => void }) {
   const [value, setValue] = useState("");
   const [status, setStatus] = useState("");
-  async function submit(ev) {
+  async function submit(ev: FormEvent<HTMLFormElement>) {
     ev.preventDefault();
     const key = await acceptKey(value, keyinfo);
     setValue("");
@@ -28,7 +35,7 @@ function Lock({ keyinfo, onUnlock }) {
     else setStatus("That link or key doesn't open the current dashboard.");
   }
   return (
-    <form onSubmit={submit} className="mx-auto mt-10 flex max-w-md flex-col gap-3 rounded-2xl border border-line bg-surface p-5">
+    <form onSubmit={(ev) => void submit(ev)} className="mx-auto mt-10 flex max-w-md flex-col gap-3 rounded-2xl border border-line bg-surface p-5">
       <h2 className="text-lg font-bold">Dashboard locked</h2>
       <p className="text-sm text-muted">
         Open your unlock link once on this device, or paste it here. The data is encrypted and decrypted in this
@@ -43,11 +50,11 @@ function Lock({ keyinfo, onUnlock }) {
   );
 }
 
-const THEME_ICON = { auto: "◐", light: "☀", dark: "☾" };
-const THEME_LABEL = { auto: "Theme: auto (follows system)", light: "Theme: light", dark: "Theme: dark" };
+const THEME_ICON: Record<Theme, string> = { auto: "◐", light: "☀", dark: "☾" };
+const THEME_LABEL: Record<Theme, string> = { auto: "Theme: auto (follows system)", light: "Theme: light", dark: "Theme: dark" };
 
 function ThemeToggle() {
-  const [theme, setTheme] = useState(loadTheme);
+  const [theme, setTheme] = useState<Theme>(loadTheme);
   function cycle() {
     const next = nextTheme(theme);
     applyTheme(next);
@@ -59,7 +66,7 @@ function ThemeToggle() {
   );
 }
 
-function Tab({ href, active, icon, children }) {
+function Tab({ href, active, icon, children }: { href: string; active: boolean; icon: string; children: ReactNode }) {
   return (
     <a href={href} aria-current={active ? "page" : undefined}
       className={`flex flex-1 flex-col items-center justify-center gap-0.5 text-xs no-underline lg:flex-none lg:flex-row lg:gap-1.5 lg:rounded-lg lg:px-3.5 lg:py-2 lg:text-sm ${
@@ -70,7 +77,7 @@ function Tab({ href, active, icon, children }) {
   );
 }
 
-function TabBar({ index, active, date }) {
+function TabBar({ index, active, date }: { index: DashboardIndex; active: Section; date: string | undefined }) {
   return (
     <nav aria-label="Sections"
       className="fixed inset-x-0 bottom-0 z-10 flex h-[calc(4rem+env(safe-area-inset-bottom))] border-t border-line bg-surface pb-safe
@@ -92,27 +99,27 @@ function TabBar({ index, active, date }) {
 
 export default function App() {
   const route = useHashRoute();
-  const [phase, setPhase] = useState("loading"); // loading | empty | locked | ready | error
-  const [keyinfo, setKeyinfo] = useState(null);
-  const [load, setLoad] = useState(null);
-  const [index, setIndex] = useState(null);
-  const [view, setView] = useState(null);
+  const [phase, setPhase] = useState<Phase>("loading");
+  const [keyinfo, setKeyinfo] = useState<KeyInfo | null>(null);
+  const [load, setLoad] = useState<Loader | null>(null);
+  const [index, setIndex] = useState<DashboardIndex | null>(null);
+  const [view, setView] = useState<View | null>(null);
   const [error, setError] = useState("");
 
-  const unlock = useCallback(async (key) => {
+  const unlock = useCallback(async (key: CryptoKey) => {
     const loader = makeLoader(key);
     try {
-      setIndex(await loader("index.json"));
+      setIndex(await loader<DashboardIndex>("index.json"));
       setLoad(() => loader);
       setPhase("ready");
     } catch (err) {
-      setError(err.message);
+      setError(errorText(err));
       setPhase("error");
     }
   }, []);
 
   useEffect(() => {
-    (async () => {
+    void (async () => {
       const info = await fetchKeyInfo().catch(() => null);
       if (!info) return setPhase("empty");
       setKeyinfo(info);
@@ -124,25 +131,25 @@ export default function App() {
 
   // An unlock link opened in an already-open tab.
   useEffect(() => {
-    if (keyinfo && hashHasKey()) restoreKey(keyinfo).then((key) => key && unlock(key));
+    if (keyinfo && hashHasKey()) void restoreKey(keyinfo).then((key) => key && unlock(key));
   }, [route, keyinfo, unlock]);
 
   useEffect(() => {
-    if (phase !== "ready") return;
+    if (phase !== "ready" || !load || !index) return;
     let cancelled = false;
-    (async () => {
+    void (async () => {
       try {
         if (route.view === "record") {
-          const ledger = await load("ledger.json");
+          const ledger = await load<Ledger>("ledger.json");
           if (!cancelled) setView({ kind: "record", ledger });
         } else {
           const date = route.date && index.days.includes(route.date) ? route.date : index.latest;
-          const day = await load(`days/${date}.json`);
-          if (!cancelled) setView({ kind: "day", date, day, missing: route.date && route.date !== date });
+          const day = await load<Day>(`days/${date}.json`);
+          if (!cancelled) setView({ kind: "day", date, day, missing: route.date != null && route.date !== date });
         }
         window.scrollTo(0, 0);
       } catch (err) {
-        if (!cancelled) { setError(err.message); setPhase("error"); }
+        if (!cancelled) { setError(errorText(err)); setPhase("error"); }
       }
     })();
     return () => { cancelled = true; };
@@ -155,9 +162,10 @@ export default function App() {
     setPhase("locked");
   }
 
-  const active = view?.kind === "record" ? "record" : view?.date && index && view.date !== index.latest ? "archive" : "today";
+  const dayDate = view?.kind === "day" ? view.date : undefined;
+  const active: Section = view?.kind === "record" ? "record" : dayDate && index && dayDate !== index.latest ? "archive" : "today";
   const subtitle = view?.kind === "record" ? "Track record"
-    : view?.date ? `${shortDate(view.date)} close${active === "archive" ? " · archive" : ""}` : "";
+    : dayDate ? `${shortDate(dayDate)} close${active === "archive" ? " · archive" : ""}` : "";
 
   return (
     <div className="mx-auto max-w-6xl px-4 pb-[calc(5.5rem+env(safe-area-inset-bottom))] lg:px-6 lg:pb-8">
@@ -175,12 +183,12 @@ export default function App() {
         </div>
       </header>
 
-      {phase === "ready" && index && <TabBar index={index} active={active} date={view?.date} />}
+      {phase === "ready" && index && <TabBar index={index} active={active} date={dayDate} />}
 
       <main>
         {phase === "loading" && <p className="text-muted">Loading…</p>}
         {phase === "empty" && <Card className="text-muted">No analysis has been published yet.</Card>}
-        {phase === "locked" && <Lock keyinfo={keyinfo} onUnlock={unlock} />}
+        {phase === "locked" && keyinfo && <Lock keyinfo={keyinfo} onUnlock={(key) => void unlock(key)} />}
         {phase === "error" && <Card className="bg-bad-bg text-bad">Could not load data: {error}</Card>}
         {phase === "ready" && view?.kind === "day" && (<>
           {view.missing && <Card className="mb-3 text-sm text-muted">No analysis for that date; showing the latest.</Card>}

@@ -22,8 +22,10 @@ One daily overlay ([`indicators/momentum-edge-chart-check.pine`](indicators/mome
   box, and an extension tint above 4 ATR.
 - **Levels:** stop, buy-up-to limit and R-multiple targets. Type in a dashboard pick's values and
   the lines match its prices.
+- **Past trade windows:** earlier in-context signals on that stock, replayed with the dashboard's
+  own fill rules and costs. Each window is shaded by outcome and labelled with R and % after costs.
 - **Panel:** CONFIRM / CAUTION / AVOID for the scored session (its date is printed), with the
-  SPY gate, trend, relative strength, setup, volume, extension and earnings rows.
+  SPY gate, trend, relative strength, setup, volume, extension, earnings and past-signal rows.
 
 Its definitions are fixed to match the dashboard's feature calculations exactly, so the chart and
 the dashboard always agree on the facts.
@@ -57,7 +59,7 @@ indicators/
 notes/
   TEMPLATE.md                   Research-note template
 pipeline/                       Daily agent data pipeline (stdlib Python)
-site/                           Encrypted daily-scan dashboard (React + Tailwind, GitHub Pages)
+site/                           Encrypted daily-scan dashboard (React + TypeScript + Tailwind, GitHub Pages)
 tools/                          Dashboard build + payload encryption (Node)
 tests/                          Python + Node tests
 agent/ROUTINE.md                How the daily agent routine is wired

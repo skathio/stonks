@@ -1,46 +1,50 @@
 // =============================================================================
 // Pure formatting helpers for the dashboard (no DOM), unit-tested in tests/.
 // =============================================================================
+import type { Earnings, PickStatus, Tone } from "./types.ts";
+
 const DASH = "—";
 
-export function isNum(x) {
+export function isNum(x: unknown): x is number {
   return typeof x === "number" && Number.isFinite(x);
 }
 
-export function fmtNum(x, digits = 2) {
+export function fmtNum(x: unknown, digits = 2): string {
   return isNum(x) ? x.toLocaleString("en-US", { minimumFractionDigits: digits, maximumFractionDigits: digits }) : DASH;
 }
 
-export function fmtPct(x, digits = 1, signed = true) {
+export function fmtPct(x: unknown, digits = 1, signed = true): string {
   if (!isNum(x)) return DASH;
   const s = x.toFixed(digits);
   return `${signed && x > 0 ? "+" : ""}${s}%`;
 }
 
-export function fmtR(x) {
+export function fmtR(x: unknown): string {
   return isNum(x) ? `${x > 0 ? "+" : ""}${x.toFixed(2)}R` : DASH;
 }
 
-export function fmtPrice(x) {
+export function fmtPrice(x: unknown): string {
   return isNum(x) ? `$${fmtNum(x, 2)}` : DASH;
 }
 
-export function signClass(x) {
+export type Sign = "up" | "down" | "flat";
+
+export function signClass(x: unknown): Sign {
   if (!isNum(x) || x === 0) return "flat";
   return x > 0 ? "up" : "down";
 }
 
-const REGIME = {
+const REGIME: Record<string, { label: string; tone: Tone }> = {
   risk_on: { label: "Risk-on", tone: "good" },
   neutral: { label: "Neutral", tone: "warn" },
   risk_off: { label: "Risk-off", tone: "bad" },
 };
 
-export function regimeInfo(label) {
-  return REGIME[label] ?? { label: String(label ?? "unknown"), tone: "muted" };
+export function regimeInfo(label: string | null | undefined): { label: string; tone: Tone } {
+  return REGIME[label ?? ""] ?? { label: String(label ?? "unknown"), tone: "muted" };
 }
 
-const STATUS = {
+const STATUS: Record<PickStatus, string> = {
   pending: "Awaiting entry",
   open: "Open",
   stopped: "Stopped out",
@@ -49,11 +53,11 @@ const STATUS = {
   gap_below_stop: "Not filled (gapped below stop)",
 };
 
-export function statusLabel(status) {
-  return STATUS[status] ?? String(status ?? "");
+export function statusLabel(status: string | null | undefined): string {
+  return STATUS[status as PickStatus] ?? String(status ?? "");
 }
 
-const SETUP = {
+const SETUP: Record<string, string> = {
   breakout: "Breakout",
   squeeze: "Squeeze",
   pullback_reclaim: "Pullback reclaim",
@@ -61,12 +65,12 @@ const SETUP = {
   other: "Other",
 };
 
-export function setupLabel(setup) {
-  return SETUP[setup] ?? String(setup ?? "");
+export function setupLabel(setup: string | null | undefined): string {
+  return SETUP[setup ?? ""] ?? String(setup ?? "");
 }
 
 /** Only https URLs reach an href; anything else renders as plain text. */
-export function safeUrl(url) {
+export function safeUrl(url: unknown): string | null {
   if (typeof url !== "string") return null;
   try {
     const parsed = new URL(url);
@@ -76,16 +80,22 @@ export function safeUrl(url) {
   }
 }
 
-export function tradingViewUrl(ticker) {
+export function tradingViewUrl(ticker: string): string {
   return `https://www.tradingview.com/chart/?symbol=${encodeURIComponent(String(ticker).replace("-", "."))}`;
 }
 
-export function convictionDots(n) {
+export function convictionDots(n: unknown): string {
   const k = Math.max(0, Math.min(5, Math.round(Number(n) || 0)));
   return "●".repeat(k) + "○".repeat(5 - k);
 }
 
-export function earningsNote(earnings, horizon) {
+export interface Note {
+  text: string;
+  tone: Tone;
+  inside?: boolean;
+}
+
+export function earningsNote(earnings: Earnings | null | undefined, horizon: unknown): Note {
   if (!earnings) return { text: "No date found", tone: "muted" };
   const when = `${earnings.date}${earnings.hour ? ` (${earnings.hour})` : ""}, ${earnings.sessions_away} sessions`;
   const conflict = earnings.conflict ? " · sources disagree" : "";
@@ -93,24 +103,26 @@ export function earningsNote(earnings, horizon) {
   return { text: `${when}${conflict}`, tone: inside ? "warn" : "muted", inside };
 }
 
-export function routeFromHash(hash) {
+export type Route = { view: "record" } | { view: "day"; date: string | null };
+
+export function routeFromHash(hash: unknown): Route {
   const h = String(hash || "").replace(/^#\/?/, "");
   if (h === "record") return { view: "record" };
   const m = h.match(/^day\/(\d{4}-\d{2}-\d{2})$/);
-  if (m) return { view: "day", date: m[1] };
+  if (m?.[1]) return { view: "day", date: m[1] };
   return { view: "day", date: null };
 }
 
 /** Percent change from `from` to `to`, or null. */
-export function pctFrom(from, to) {
+export function pctFrom(from: unknown, to: unknown): number | null {
   return isNum(from) && isNum(to) && from !== 0 ? (100 * (to - from)) / from : null;
 }
 
 /** First sentence of a paragraph, for a one-line headline. */
-export function firstSentence(text, max = 180) {
+export function firstSentence(text: unknown, max = 180): string {
   const s = String(text ?? "").trim();
   const m = s.match(/^.+?[.!?](?=\s|$)/);
-  const out = m ? m[0] : s;
+  const out = m?.[0] ?? s;
   return out.length > max ? `${out.slice(0, max - 1).trimEnd()}…` : out;
 }
 
@@ -118,15 +130,15 @@ const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
 /** "2026-10-28" -> "Wed Oct 28" (date-only, no timezone shift). */
-export function shortDate(iso) {
+export function shortDate(iso: unknown): string {
   const m = String(iso ?? "").match(/^(\d{4})-(\d{2})-(\d{2})$/);
   if (!m) return String(iso ?? "");
-  const d = new Date(Date.UTC(+m[1], +m[2] - 1, +m[3]));
+  const d = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])));
   return `${WEEKDAYS[d.getUTCDay()]} ${MONTHS[d.getUTCMonth()]} ${d.getUTCDate()}`;
 }
 
 /** Compact earnings chip text + tone. */
-export function earningsChip(earnings, horizon) {
+export function earningsChip(earnings: Earnings | null | undefined, horizon: unknown): Note {
   if (!earnings) return { text: "Earnings: none scheduled", tone: "muted" };
   const n = earnings.sessions_away;
   const inside = isNum(n) && isNum(horizon) && n <= horizon;

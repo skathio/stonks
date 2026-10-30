@@ -115,9 +115,9 @@ data/                             Historical OHLCV CSVs (gitignored — local on
 scripts/                          Python training / backtest harness (gitignored — local only).
 results/                          Backtest & training output (gitignored — local only).
 pipeline/                         Daily agent data pipeline (stdlib Python): history, features, enrich, publish, ledger.
-site/                             Dashboard: React + Tailwind (Vite) in site/src; site/data/ = ciphertext only. Pages via hashira.
-tools/                            build.mjs (plaintext guard + Vite build) and encrypt-dashboard.mjs.
-tests/                            Python (test_*.py) and Node (*.test.mjs) tests.
+site/                             Dashboard: React + TypeScript + Tailwind (Vite) in site/src; site/data/ = ciphertext only. Pages via hashira.
+tools/                            build.ts (plaintext guard + Vite build) and encrypt-dashboard.ts (TypeScript, run by Node directly).
+tests/                            Python (test_*.py) and Node (*.test.ts) tests.
 agent/ROUTINE.md                  How the daily cloud routine is wired (prompt, environment, flow).
 spike/                            Feasibility spikes (kept as a record).
 .github/workflows/deploy.yml      hashira static-webapp CI + Pages deploy.
@@ -129,8 +129,8 @@ README.md                         Public-facing repo overview.
 **Private state repo `skathio/stonks-data`** (cloned next to this repo): raw price history, the agent's
 analysis prompt (`agent/PROMPT.md` — edge IP), plaintext runs, the pick ledger. Massive's and Finnhub's
 terms forbid redistributing their data or results derived from it: never commit market data or plaintext
-analysis to this public repo. Only `tools/encrypt-dashboard.mjs` output may land in `site/data/`, and
-`tools/build.mjs` refuses to build anything else.
+analysis to this public repo. Only `tools/encrypt-dashboard.ts` output may land in `site/data/`, and
+`tools/build.ts` refuses to build anything else.
 
 **Two-tier documentation:**
 - **Public companion (`indicators/<slug>.md`)**: usage, inputs, compatibility. No edge thesis, no failure conditions, no research detail. Safe to publish.
