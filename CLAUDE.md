@@ -127,7 +127,7 @@ README.md                         Public-facing repo overview.
 ```
 
 **Private state repo `skathio/stonks-data`** (cloned next to this repo): raw price history, the agent's
-analysis prompt (`agent/PROMPT.md`, which dispatches to `PROMPT_v2.md` for position trades — edge IP), plaintext runs, the pick ledger and its control arm (`control.json`: every in-context mechanical signal at fixed levels). Massive's and Finnhub's
+analysis prompt (`agent/PROMPT.md`, position trades — edge IP), plaintext runs, the pick ledger and its control arm (`control.json`: every in-context mechanical signal at fixed levels). Massive's and Finnhub's
 terms forbid redistributing their data or results derived from it: never commit market data or plaintext
 analysis to this public repo. Only `tools/encrypt-dashboard.ts` output may land in `site/data/`, and
 `tools/build.ts` refuses to build anything else.
