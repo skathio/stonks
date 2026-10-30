@@ -1,6 +1,6 @@
 //@version=6
 // ============================================================
-// Momentum Edge — Chart Check (Daily) — 2026-10-29 — v1.3
+// Momentum Edge — Chart Check (Daily) — 2026-10-30 — v1.4
 // Pine Script v6 | Author: skathi | Replaces ME Swing Engine + ME Regime & Quality
 // ============================================================
 // Purpose:   Visual confirmation layer for the daily agent dashboard. Mirrors
@@ -17,13 +17,19 @@
 //            Markers, squeeze dots and the extension tint draw on confirmed bars only.
 //            The panel scores the last CLOSED session (timenow >= time_close), or a
 //            pinned date, and prints it.
+// History:   Past in-context signals are replayed forward with the LEDGER's rules
+//            (pipeline/ledger.py): entry at the next open, skipped above the chase
+//            limit or at/below the stop, exit at the stop or marked at the horizon
+//            close of session 20, 0.2% round-trip costs in R. Targets are not exits. One trade at a
+//            time so the sample counts independent outcomes. It is THIS stock's past
+//            on THIS chart: a small, selection-biased sample, not the system's record.
 // Format:    ZERO indentation on purpose. TradingView's mobile editor stacks
 //            indentation on paste, which breaks any indented Pine. So: no multi-line
 //            calls, single-line functions, ternaries instead of if blocks, and no
 //            loops. Keep it that way so the script can be pasted from a phone.
 // ============================================================
 
-indicator(title="Momentum Edge — Chart Check", shorttitle="ME Check", overlay=true, max_bars_back=500, max_lines_count=40, max_labels_count=40, max_boxes_count=4)
+indicator(title="Momentum Edge — Chart Check", shorttitle="ME Check", overlay=true, max_bars_back=500, max_lines_count=40, max_labels_count=150, max_boxes_count=300)
 
 // ============================================================
 // 1. PARITY — mirrors pipeline/features.py (constants :21-29)
@@ -62,6 +68,9 @@ const float  NEAR_52W_ATR = 2.0     // pipeline tag near_52w_high
 const int    PIN_BUFFER   = 499     // max_bars_back - 1: deepest pinnable offset
 const int    DAY_MS       = 86400000
 const string BENCH        = "AMEX:SPY"
+const float  COST_FRAC    = 0.002   // ledger.py COST_FRACTION: 0.10% commission + 0.10% slippage, round trip
+const int    LEDGER_HOLD  = 20      // ledger.py max(HORIZONS): stops checked and R marked over sessions 1..20
+const int    LOW_SAMPLE   = 30      // ledger.py low_sample threshold
 
 // ============================================================
 // 2. INPUTS — dashboard hand-off + display only (none affect signals)
@@ -83,7 +92,9 @@ i_nearPct   = input.float(5.0,    "Borderline band (%)",          minval=0.0, ma
 i_markLook  = input.int(120,      "Markers: last N bars (0 = all)", minval=0, maxval=5000,               group="Display")
 i_panelPos  = input.string("bottom_left", "Panel position", options=["top_right", "middle_right", "bottom_right", "top_left", "middle_left", "bottom_left"], group="Panel")
 i_panelSize = input.string("small", "Panel text size", options=["tiny", "small", "normal"],                group="Panel")
-i_compact   = input.bool(true,    "Compact panel (verdict, setup, volume, extension, earnings)",         group="Panel")
+i_compact   = input.bool(true,    "Compact panel (verdict, setup, volume, extension, earnings, history)", group="Panel")
+i_showHist  = input.bool(true,    "Show past trade windows",                                           group="History", tooltip="Replays past in-context A/b/B signals with the dashboard ledger's fill rules (20-session hold), using the stop, chase and target 1 above. Set those to the dashboard pick's values: tuning them until this chart's history looks good is curve-fitting one stock.")
+i_histBars  = input.int(504,      "History window (bars)",        minval=60,  maxval=2000,              group="History", tooltip="Only signals inside the last N bars count. 504 is about two years.")
 
 // ============================================================
 // 3. FEATURES — one line per features.py definition
@@ -198,6 +209,79 @@ plot(extAtr,   "Ext ATR",   display=display.none)
 plot(volRatio, "Vol ratio", display=display.none)
 
 // ============================================================
+// 5b. HISTORY — past signals replayed with the ledger's rules
+// ============================================================
+// Qualifying signal = what the panel would CONFIRM as an entry on that bar (earnings
+// excepted: past report dates aren't checked): SPY gate, trend stack, RS rising, not
+// extended, and a breakout on >= 1.3x volume or a pullback reclaim. Post-squeeze-under-
+// the-high is a watch state, not an entry, so it doesn't start a trade here.
+// State: 0 flat, 1 armed (enter at the next open), 2 in a trade. Transitions happen on
+// confirmed bars only. Everything below is single-line, in evaluation order.
+
+hSignal = isDaily and barstate.isconfirmed and bar_index > last_bar_index - i_histBars and riskOn and trendStack and rsRising and not extended and ((breakout and volSurge) or pullback)
+
+var int   hState    = 0
+var float hStop     = na
+var float hMax      = na
+var float hT1       = na
+var float hEntry    = na
+var int   hEntryBar = na
+var bool  hT1Hit    = false
+var int   hN        = 0
+var int   hUp       = 0
+var int   hT1n      = 0
+var float hSumR     = 0.0
+
+hBar      = isDaily and barstate.isconfirmed
+hS0       = hState
+hFill     = hBar and hS0 == 1 and open <= hMax and open > hStop      // ledger: not_filled / gap_below_stop otherwise
+hSkip     = hBar and hS0 == 1 and not hFill
+hEntry    := hFill ? open : hEntry
+hEntryBar := hFill ? bar_index : hEntryBar
+hT1Hit    := hFill ? false : hT1Hit
+hLive     = hBar and (hS0 == 2 or hFill)
+hRisk     = hEntry - hStop
+hStopX    = hLive and low <= hStop
+hExitPx   = hStopX ? (bar_index == hEntryBar ? hStop : math.min(open, hStop)) : close
+hSess     = bar_index - hEntryBar + 1                                  // the entry session is session 1
+hTimeX    = hLive and not hStopX and hSess >= LEDGER_HOLD
+hExit     = hStopX or hTimeX
+hT1Hit    := hLive and not hStopX and not na(hT1) and high >= hT1 ? true : hT1Hit   // the stop bar doesn't count
+hR        = hExit ? (hExitPx - hEntry) / hRisk - COST_FRAC * hEntry / hRisk : na
+hPct      = hExit ? 100 * (hExitPx / hEntry - 1) - 100 * COST_FRAC : na
+
+f_signed(float x, string fmt) => (x >= 0 ? "+" : "") + str.tostring(x, fmt)
+
+// Trade window, drawn when it closes: green zone entry -> T1, red zone stop -> entry.
+// The zone that decided the trade is shaded stronger. The label carries R and % after costs.
+hDraw  = hExit and i_showHist
+hTop   = na(hT1) ? hEntry + hRisk : hT1
+hBoxUp = hDraw ? box.new(hEntryBar, hTop, bar_index, hEntry, border_color=color.new(#12733a, 60), bgcolor=color.new(#12733a, hR > 0 ? 72 : 92)) : na
+hBoxDn = hDraw ? box.new(hEntryBar, hEntry, bar_index, hStop, border_color=color.new(#b3261e, 60), bgcolor=color.new(#b3261e, hR > 0 ? 92 : 72)) : na
+hLbl   = hDraw ? label.new(bar_index, hR > 0 ? hTop : hStop, f_signed(hR, "#.##") + "R · " + f_signed(hPct, "#.#") + "%", style=hR > 0 ? label.style_label_down : label.style_label_up, color=color.new(color.white, 100), textcolor=hR > 0 ? C_GOOD : C_BAD, size=size.tiny, tooltip=str.format("entry {0,number,#.##} · {1} after {2} sessions · T1 {3}", hEntry, hStopX ? "stopped" : "time exit", hSess, hT1Hit ? "hit" : "not hit")) : na
+
+hN     := hExit ? hN + 1 : hN
+hUp    := hExit and hR > 0 ? hUp + 1 : hUp
+hT1n   := hExit and hT1Hit ? hT1n + 1 : hT1n
+hSumR  := hExit ? hSumR + hR : hSumR
+hState := hExit or hSkip ? 0 : hFill ? 2 : hState
+
+// Arm on a qualifying close while flat (a trade that just closed frees the slot). Levels are
+// rounded to cents as analysis.levels() does; T1 is the nearer target, as the ledger sorts them.
+hArm   = hSignal and hState == 0
+hT1R   = i_tgt1R > 0 and i_tgt2R > 0 ? math.min(i_tgt1R, i_tgt2R) : math.max(i_tgt1R, i_tgt2R)
+hStop  := hArm ? math.round(close - i_stopAtr * atr, 2) : hStop
+hMax   := hArm ? math.round(close + i_chaseAtr * atr, 2) : hMax
+hT1    := hArm ? (hT1R > 0 ? math.round(close + hT1R * i_stopAtr * atr, 2) : na) : hT1
+hState := hArm ? 1 : hState
+
+// The open trade, if any: window to the last bar, R marked at the last CLOSED session
+// (state only moves on confirmed bars, so the forming bar is never mixed in).
+hOpenR  = hState == 2 ? (close[liveOff] - hEntry) / (hEntry - hStop) - COST_FRAC * hEntry / (hEntry - hStop) : na
+hOpenUp = isDaily and barstate.islast and i_showHist and hState == 2 ? box.new(hEntryBar, na(hT1) ? 2 * hEntry - hStop : hT1, bar_index, hEntry, border_color=color.new(#12733a, 60), border_style=line.style_dotted, bgcolor=color.new(#12733a, 90)) : na
+hOpenDn = isDaily and barstate.islast and i_showHist and hState == 2 ? box.new(hEntryBar, hEntry, bar_index, hStop, border_color=color.new(#b3261e, 60), border_style=line.style_dotted, bgcolor=color.new(#b3261e, 90)) : na
+
+// ============================================================
 // 6. AS-OF SNAPSHOT, LEVELS, BASE BOX (last bar only)
 // ============================================================
 // Drawings are created by single-line expressions on the last bar. Pine rolls back
@@ -282,35 +366,39 @@ headVal    = not isDaily ? "Daily timeframe required" : pinMissed ? "pin date no
 headCol    = not isDaily or pinMissed or pinTooOld ? C_WARN : vColor
 earnTxt    = na(earnSess) ? "no date (TV)" : str.format("{0} · ~{1} sess (TV, from today)", str.format_time(int(earnT), "MMM d", syminfo.timezone), earnSess)
 earnCol    = earnSoon ? C_BAD : not na(earnSess) and earnSess <= i_horizon ? C_WARN : C_MUTE
+hAvgR      = hN > 0 ? hSumR / hN : na
+histOpen   = na(hOpenR) ? "" : " · open " + f_signed(hOpenR, "#.#") + "R"
+histTxt    = (hN == 0 ? "none in window" : str.format("{0} · {1,number,#}% up · avg {2}R net · T1 {3}{4}", hN, 100.0 * hUp / hN, f_signed(hAvgR, "#.##"), hT1n, hN < LOW_SAMPLE ? " · small n" : "")) + histOpen + (pinOk ? " · to today" : "")
+histCol    = hN < LOW_SAMPLE ? C_MUTE : hAvgR > 0 ? C_GOOD : C_BAD
 
 panelPos  = i_panelPos == "top_right" ? position.top_right : i_panelPos == "middle_right" ? position.middle_right : i_panelPos == "bottom_right" ? position.bottom_right : i_panelPos == "top_left" ? position.top_left : i_panelPos == "middle_left" ? position.middle_left : position.bottom_left
 panelText = i_panelSize == "tiny" ? size.tiny : i_panelSize == "normal" ? size.normal : size.small
-nRows     = i_compact ? 5 : 13
+nRows     = i_compact ? 6 : 14
 var table panel = table.new(panelPos, 2, nRows, bgcolor=color.new(#171a21, 8), border_width=0, frame_color=color.new(#2a2f3a, 0), frame_width=1)
 f_key(int r, string k) => table.cell(panel, 0, math.min(r, nRows - 1), k, text_color=color.new(#9aa2b1, 0), text_size=panelText, text_halign=text.align_left)
 f_val(int r, string v, color c) => table.cell(panel, 1, math.min(r, nRows - 1), v, text_color=c, text_size=panelText, text_halign=text.align_right)
 // Rows render only on the last bar (cheap no-ops elsewhere: empty strings). Compact mode
-// shows rows 0-4 (what you act on) and blanks the context rows 5-12.
+// shows rows 0-5 (what you act on) and blanks the context rows 6-13.
 showP = barstate.islast and i_showPanel
 showD = showP and isDaily
 showX = showD and not i_compact
-// Context rows first: in compact mode they clamp onto row 4 and are then overwritten.
-f_key(5, showX ? "SPY gate" : "")
-f_val(5, showX ? (cRisk ? "risk-on" : "off") : "", cRisk ? C_GOOD : C_WARN)
-f_key(6, showX ? "Trend stack" : "")
-f_val(6, showX ? (cStack ? "yes" : "no") + (sma200Rising[off] ? " · 200d rising" : " · 200d flat") : "", cStack ? C_GOOD : C_WARN)
-f_key(7, showX ? "RS vs SPY" : "")
-f_val(7, showX ? (cRs ? "rising" : "not rising") : "", cRs ? C_GOOD : C_WARN)
-f_key(8, showX ? "To prior-20 high" : "")
-f_val(8, showX ? str.format("{0,number,#.##} ATR", cPrHi) : "", cPrHi <= NEAR_TIGHT ? C_GOOD : C_MUTE)
-f_key(9, showX ? "To 52w high" : "")
-f_val(9, showX ? str.format("{0,number,#.#} ATR", dist52Atr[off]) : "", dist52Atr[off] <= NEAR_52W_ATR ? C_GOOD : C_MUTE)
-f_key(10, showX ? "Base (15d)" : "")
-f_val(10, showX ? str.format("{0,number,#.#} ATR range", baseRangeAtr[off]) : "", C_MUTE)
-f_key(11, showX ? "ATR" : "")
-f_val(11, showX ? str.format("{0,number,#.##}% of price", 100 * atr[off] / close[off]) : "", C_MUTE)
-f_key(12, showX ? "Levels" : "")
-f_val(12, showX ? (pinOk ? str.format("pinned · stop {0} ATR", i_stopAtr) : "auto (pin to match dashboard)") : "", pinOk ? C_ACC : C_MUTE)
+// Context rows first: in compact mode they clamp onto row 5 and are then overwritten.
+f_key(6, showX ? "SPY gate" : "")
+f_val(6, showX ? (cRisk ? "risk-on" : "off") : "", cRisk ? C_GOOD : C_WARN)
+f_key(7, showX ? "Trend stack" : "")
+f_val(7, showX ? (cStack ? "yes" : "no") + (sma200Rising[off] ? " · 200d rising" : " · 200d flat") : "", cStack ? C_GOOD : C_WARN)
+f_key(8, showX ? "RS vs SPY" : "")
+f_val(8, showX ? (cRs ? "rising" : "not rising") : "", cRs ? C_GOOD : C_WARN)
+f_key(9, showX ? "To prior-20 high" : "")
+f_val(9, showX ? str.format("{0,number,#.##} ATR", cPrHi) : "", cPrHi <= NEAR_TIGHT ? C_GOOD : C_MUTE)
+f_key(10, showX ? "To 52w high" : "")
+f_val(10, showX ? str.format("{0,number,#.#} ATR", dist52Atr[off]) : "", dist52Atr[off] <= NEAR_52W_ATR ? C_GOOD : C_MUTE)
+f_key(11, showX ? "Base (15d)" : "")
+f_val(11, showX ? str.format("{0,number,#.#} ATR range", baseRangeAtr[off]) : "", C_MUTE)
+f_key(12, showX ? "ATR" : "")
+f_val(12, showX ? str.format("{0,number,#.##}% of price", 100 * atr[off] / close[off]) : "", C_MUTE)
+f_key(13, showX ? "Levels" : "")
+f_val(13, showX ? (pinOk ? str.format("pinned · stop {0} ATR", i_stopAtr) : "auto (pin to match dashboard)") : "", pinOk ? C_ACC : C_MUTE)
 f_key(0, showP ? header : "")
 f_val(0, showP ? headVal : "", headCol)
 f_key(1, showD ? "Setup" : "")
@@ -321,6 +409,8 @@ f_key(3, showD ? "Extension" : "")
 f_val(3, showD ? str.format("{0,number,#.#} ATR vs EMA21", cExt) : "", cExt > MAX_EXT_ATR ? C_BAD : f_near(cExt, MAX_EXT_ATR) ? C_WARN : C_GOOD)
 f_key(4, showD ? "Next earnings" : "")
 f_val(4, showD ? earnTxt : "", earnCol)
+f_key(5, showD ? "Past signals" : "")
+f_val(5, showD ? histTxt : "", histCol)
 
 // ============================================================
 // 8. ALERTS — confirmed bars only, with context
