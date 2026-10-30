@@ -28,6 +28,7 @@ MAX_ENRICH = 40
 # A report this close can gap straight through any ATR stop; the prompt says
 # not to list such names, and publish enforces it.
 MIN_EARNINGS_SESSIONS = 4
+LOW_VOLUME_MAX_CONVICTION = 3  # breakout below feat_mod.VOL_SURGE: Chart Check says CAUTION
 FRED_SERIES = {"vix": "VIXCLS", "hy_oas": "BAMLH0A0HYM2", "ust10y": "DGS10", "curve_10y2y": "T10Y2Y"}
 CSV_COLUMNS = ("ticker", "name", "sector", "index", "eligible", "close", "atr_pct", "chg_1d_pct",
                "ret_5d_pct", "ret_21d_pct", "ret_63d_pct", "ret_126d_pct", "rs_rank", "rs_rising",
@@ -280,6 +281,10 @@ def publish(root, as_of=None, encrypt=True):
         c["features"] = {k: f.get(k) for k in ("rs_rank", "rs_rising", "trend_stack", "ext_ema21_atr", "dist_52wh_atr",
                                                "pct_off_52wh", "atr_pct", "ret_21d_pct", "ret_63d_pct", "vol_ratio",
                                                "adv20_usd_m", "bars_since_squeeze", "tags")}
+        if low_volume_breakout(f.get("tags") or []) and c["conviction"] > LOW_VOLUME_MAX_CONVICTION:
+            raise analysis_mod.AnalysisError(
+                f"{c['ticker']}: breakout on {f.get('vol_ratio')}x volume (< {feat_mod.VOL_SURGE}x); conviction "
+                f"{c['conviction']} > {LOW_VOLUME_MAX_CONVICTION} (lower it, or watchlist it until volume confirms)")
         nxt = (earnings.get(c["ticker"]) or {}).get("next")
         if nxt and nxt["sessions_away"] < MIN_EARNINGS_SESSIONS:
             raise analysis_mod.AnalysisError(
@@ -323,6 +328,12 @@ def _update_ledger(root, as_of, result, feats, published_utc):
     ordered = sorted(picks.values(), key=lambda p: (p["as_of"], p["ticker"]))
     write_json(path, ordered)
     return ordered
+
+
+def low_volume_breakout(tags):
+    """Today's trigger is a breakout without the volume surge, and not also a pullback reclaim:
+    the same test that makes Chart Check say CAUTION ("breakout on low volume")."""
+    return "breakout" in tags and "volume_surge" not in tags and "pullback_reclaim" not in tags
 
 
 def node_ts_args(version):

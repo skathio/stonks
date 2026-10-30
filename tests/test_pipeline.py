@@ -223,6 +223,14 @@ class LedgerPublishTime(unittest.TestCase):
         self.assertEqual(p["entry_date"], "2026-10-30")
 
 
+class LowVolumeBreakout(unittest.TestCase):
+    def test_matches_chart_check_caution(self):
+        self.assertTrue(daily.low_volume_breakout(["breakout", "post_squeeze"]))
+        self.assertFalse(daily.low_volume_breakout(["breakout", "volume_surge"]))
+        self.assertFalse(daily.low_volume_breakout(["breakout", "pullback_reclaim"]))
+        self.assertFalse(daily.low_volume_breakout(["post_squeeze", "near_52w_high"]))
+
+
 class NodeTsFlags(unittest.TestCase):
     def test_flags_by_node_version(self):
         self.assertEqual(daily.node_ts_args("v26.2.0"), [])
