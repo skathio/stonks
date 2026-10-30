@@ -6,7 +6,7 @@ import type { Day, DashboardIndex, KeyInfo, Ledger } from "./lib/types.ts";
 import { acceptKey, fetchKeyInfo, forgetKey, hashHasKey, makeLoader, restoreKey, type Loader } from "./lib/vault.ts";
 import Record from "./components/Record.tsx";
 import Today from "./components/Today.tsx";
-import { Card } from "./components/ui.tsx";
+import { Card, Icon, type IconName } from "./components/ui.tsx";
 
 type Phase = "loading" | "empty" | "locked" | "ready" | "error";
 type View = { kind: "record"; ledger: Ledger } | { kind: "day"; date: string; day: Day; missing: boolean };
@@ -50,7 +50,7 @@ function Lock({ keyinfo, onUnlock }: { keyinfo: KeyInfo; onUnlock: (key: CryptoK
   );
 }
 
-const THEME_ICON: Record<Theme, string> = { auto: "◐", light: "☀", dark: "☾" };
+const THEME_ICON: Record<Theme, IconName> = { auto: "auto", light: "sun", dark: "moon" };
 const THEME_LABEL: Record<Theme, string> = { auto: "Theme: auto (follows system)", light: "Theme: light", dark: "Theme: dark" };
 
 function ThemeToggle() {
@@ -62,16 +62,18 @@ function ThemeToggle() {
   }
   return (
     <button type="button" onClick={cycle} aria-label={`${THEME_LABEL[theme]}. Tap to change.`} title={THEME_LABEL[theme]}
-      className="h-11 w-11 rounded-xl border border-line bg-surface text-lg text-ink">{THEME_ICON[theme]}</button>
+      className="inline-flex h-11 w-11 items-center justify-center rounded-xl text-muted hover:bg-surface-2 hover:text-ink">
+      <Icon name={THEME_ICON[theme]} />
+    </button>
   );
 }
 
-function Tab({ href, active, icon, children }: { href: string; active: boolean; icon: string; children: ReactNode }) {
+function Tab({ href, active, icon, children }: { href: string; active: boolean; icon: IconName; children: ReactNode }) {
   return (
     <a href={href} aria-current={active ? "page" : undefined}
-      className={`flex flex-1 flex-col items-center justify-center gap-0.5 text-xs no-underline lg:flex-none lg:flex-row lg:gap-1.5 lg:rounded-lg lg:px-3.5 lg:py-2 lg:text-sm ${
-        active ? "font-semibold text-accent lg:bg-surface-2" : "text-muted"}`}>
-      <span aria-hidden="true" className="text-lg leading-none lg:text-base">{icon}</span>
+      className={`flex flex-1 flex-col items-center justify-center gap-1 text-xs no-underline lg:flex-none lg:flex-row lg:gap-2 lg:rounded-lg lg:px-3.5 lg:py-2 lg:text-sm ${
+        active ? "font-semibold text-accent lg:bg-surface-2" : "text-muted hover:text-ink lg:hover:bg-surface-2"}`}>
+      <Icon name={icon} />
       <span>{children}</span>
     </a>
   );
@@ -81,18 +83,18 @@ function TabBar({ index, active, date }: { index: DashboardIndex; active: Sectio
   return (
     <nav aria-label="Sections"
       className="fixed inset-x-0 bottom-0 z-10 flex h-[calc(4rem+env(safe-area-inset-bottom))] border-t border-line bg-surface pb-safe
-        lg:sticky lg:top-[4.25rem] lg:mb-4 lg:inline-flex lg:h-auto lg:gap-1 lg:rounded-xl lg:border lg:p-1">
-      <Tab href={`#/day/${index.latest}`} active={active === "today"} icon="◎">Today</Tab>
-      <Tab href="#/record" active={active === "record"} icon="↗">Record</Tab>
+        lg:static lg:h-auto lg:gap-1 lg:border-0 lg:bg-transparent lg:p-0">
+      <Tab href={`#/day/${index.latest}`} active={active === "today"} icon="today">Today</Tab>
+      <Tab href="#/record" active={active === "record"} icon="record">Record</Tab>
       {/* Styled like a tab; an invisible native select covers it, so the picker is still the
           OS one (good on phones). Until a past day is open it reads "Archive", not the latest
           date, which would just repeat the Today tab. */}
-      <div className={`relative flex flex-1 flex-col items-center justify-center gap-0.5 text-xs focus-within:ring-2 focus-within:ring-accent lg:flex-none lg:flex-row lg:gap-1.5 lg:rounded-lg lg:px-3.5 lg:py-2 lg:text-sm lg:hover:bg-surface-2 ${
-        active === "archive" ? "font-semibold text-accent lg:bg-surface-2" : "text-muted"}`}>
-        <span aria-hidden="true" className="text-lg leading-none lg:text-base">☰</span>
-        <span aria-hidden="true" className="flex items-center gap-1">
+      <div className={`relative flex flex-1 flex-col items-center justify-center gap-1 rounded-lg text-xs focus-within:outline-2 focus-within:outline-accent lg:flex-none lg:flex-row lg:gap-2 lg:px-3.5 lg:py-2 lg:text-sm ${
+        active === "archive" ? "font-semibold text-accent lg:bg-surface-2" : "text-muted hover:text-ink lg:hover:bg-surface-2"}`}>
+        <Icon name="archive" />
+        <span aria-hidden="true" className="flex items-center gap-0.5">
           {active === "archive" && date ? shortDate(date) : "Archive"}
-          <span className="text-[0.7em] opacity-70">▾</span>
+          <Icon name="chevron" className="h-3.5 w-3.5 opacity-70" />
         </span>
         <select aria-label="Archive date" value={active === "archive" ? date : ""}
           onChange={(e) => { if (e.target.value) location.hash = `#/day/${e.target.value}`; }}
@@ -178,21 +180,24 @@ export default function App() {
 
   return (
     <div className="mx-auto max-w-6xl px-4 pb-[calc(5.5rem+env(safe-area-inset-bottom))] lg:px-6 lg:pb-8">
-      <header className="sticky top-0 z-20 -mx-4 mb-3 flex items-center justify-between gap-3 border-b border-line bg-bg/90 px-4 py-2.5 backdrop-blur lg:-mx-6 lg:px-6">
-        <div>
-          <h1 className="text-base font-bold">Stonks</h1>
-          {subtitle && <p className="text-xs text-muted">{subtitle}</p>}
+      {/* No backdrop-filter here: it would turn the header into the containing block of the
+          phone tab bar (position: fixed) that renders inside it. */}
+      <header className="sticky top-0 z-20 -mx-4 mb-4 flex items-center gap-3 border-b border-line bg-bg px-4 py-2 lg:-mx-6 lg:mb-6 lg:px-6">
+        <div className="min-w-0 lg:min-w-44">
+          <h1 className="text-base font-bold leading-tight">Stonks</h1>
+          {subtitle && <p className="overflow-hidden text-ellipsis whitespace-nowrap text-xs text-muted">{subtitle}</p>}
         </div>
-        <div className="flex gap-2">
+        {phase === "ready" && index && <TabBar index={index} active={active} date={dayDate} />}
+        <div className="ml-auto flex gap-1">
           <ThemeToggle />
-        {phase === "ready" && (
-          <button type="button" onClick={lock} aria-label="Lock dashboard" title="Lock"
-            className="h-11 w-11 rounded-xl border border-line bg-surface text-lg">🔒</button>
-        )}
+          {phase === "ready" && (
+            <button type="button" onClick={lock} aria-label="Lock dashboard" title="Lock"
+              className="inline-flex h-11 w-11 items-center justify-center rounded-xl text-muted hover:bg-surface-2 hover:text-ink">
+              <Icon name="lock" />
+            </button>
+          )}
         </div>
       </header>
-
-      {phase === "ready" && index && <TabBar index={index} active={active} date={dayDate} />}
 
       <main>
         {phase === "loading" && <p className="text-muted">Loading…</p>}
@@ -206,7 +211,7 @@ export default function App() {
         {phase === "ready" && view?.kind === "record" && <Record ledger={view.ledger} />}
       </main>
 
-      <footer className="mx-0.5 mt-5 text-xs text-muted">
+      <footer className="mx-0.5 mt-6 max-w-prose text-xs text-muted">
         Personal research notes produced by an automated agent. Not investment advice. Levels come from the last
         closed session; check the chart before acting.
       </footer>

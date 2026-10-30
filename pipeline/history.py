@@ -27,7 +27,7 @@ from .common import log, read_json, write_json
 
 ET = ZoneInfo("America/New_York")
 # Benchmarks and sector proxies stored alongside the universe.
-BENCHMARKS = ("SPY", "QQQ", "IWM", "DIA", "RSP", "SMH",
+BENCHMARKS = ("SPY", "QQQ", "IWM", "DIA", "RSP", "SMH", "MTUM",
               "XLK", "XLF", "XLV", "XLY", "XLP", "XLE", "XLI", "XLB", "XLU", "XLRE", "XLC")
 SECTOR_ETF = {
     "Information Technology": "XLK", "Financials": "XLF", "Health Care": "XLV",

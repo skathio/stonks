@@ -164,11 +164,23 @@ export interface BreadthDay {
   pct_above_sma200: number;
 }
 
+/** Momentum health (pipeline features.momentum_health): MTUM vs SPY / RSP and the size scale. */
+export interface Momentum {
+  mtum_vs_spy_21d_pct: number | null;
+  mtum_vs_spy_63d_pct: number | null;
+  mtum_vs_rsp_21d_pct: number | null;
+  mtum_vs_rsp_63d_pct: number | null;
+  spread_vol_ann_pct: number;
+  target_vol_ann_pct: number;
+  size_scale: number;
+}
+
 export interface Day {
   as_of: string;
   generated_utc: string;
   analysis: Analysis;
   market: Market;
+  momentum?: Momentum | null;
   breadth: BreadthDay[];
 }
 
@@ -201,6 +213,7 @@ export interface Pick {
   spy_pct: Partial<Record<Horizon, number>>;
   mfe_r: number | null;
   mae_r: number | null;
+  size_scale?: number | null;
 }
 
 export interface LedgerStats {

@@ -266,6 +266,40 @@ def benchmark_state(bars):
     }
 
 
+# Momentum-health size scale, after Barroso & Santa-Clara (2015): size by
+# min(1, target sigma / trailing 126-session sigma of the MTUM - SPY daily spread).
+# MOM_SIGMA_TARGET is FROZEN (exported 2026-10-30): the long-run median spread sigma of
+# the Ken French top prior-return decile vs the market, rescaled to MTUM - SPY units over
+# their 2024-10..2026-09 overlap. Do not re-fit it on recent data. 1.0 = full size.
+MOM_VOL_LEN = 126
+MOM_SIGMA_TARGET = 0.00354
+
+
+def momentum_health(mtum_bars, spy_bars, rsp_bars):
+    """MTUM vs SPY / RSP relative returns and the volatility size scale, or None if too short."""
+    rows = [(m[3], s[3], r[3] if r else None) for m, s, r in zip(mtum_bars, spy_bars, rsp_bars) if m and s]
+    if len(rows) < MOM_VOL_LEN + 1:
+        return None
+    mtum, spy, rsp = ([r[i] for r in rows] for i in range(3))
+    spread = [mtum[i] / mtum[i - 1] - spy[i] / spy[i - 1] for i in range(len(rows) - MOM_VOL_LEN, len(rows))]
+    mean = sum(spread) / len(spread)
+    sigma = math.sqrt(sum((x - mean) ** 2 for x in spread) / (len(spread) - 1))
+
+    def rel(other, n):
+        a, b = pct_return(mtum, n), pct_return(other, n) if other[-n - 1] else None
+        return _r(100 * (a - b)) if a is not None and b is not None else None
+
+    rsp_ok = all(x is not None for x in rsp[-64:])
+    return {
+        "mtum_vs_spy_21d_pct": rel(spy, 21), "mtum_vs_spy_63d_pct": rel(spy, 63),
+        "mtum_vs_rsp_21d_pct": rel(rsp, 21) if rsp_ok else None,
+        "mtum_vs_rsp_63d_pct": rel(rsp, 63) if rsp_ok else None,
+        "spread_vol_ann_pct": _r(100 * sigma * math.sqrt(252), 1),
+        "target_vol_ann_pct": _r(100 * MOM_SIGMA_TARGET * math.sqrt(252), 1),
+        "size_scale": _r(min(1.0, MOM_SIGMA_TARGET / sigma) if sigma else 1.0),
+    }
+
+
 def breadth(panel, tickers, days, lookback=20):
     """Breadth over the scan universe for the last `lookback` sessions (oldest first)."""
     series = []
