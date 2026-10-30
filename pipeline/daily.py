@@ -299,13 +299,16 @@ def publish(root, as_of=None, encrypt=True):
 
     published_utc = dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")
     picks = _update_ledger(root, as_of, result, feats, published_utc)
+    risk_on = bool((market["benchmarks"].get("SPY") or {}).get("risk_on_gate"))
+    control = _update_control(root, as_of, feats, risk_on, earnings, members, picks, published_utc)
     day_payload = {"as_of": as_of, "generated_utc": published_utc,
                    "analysis": result,
                    "market": {k: market[k] for k in ("benchmarks", "sectors", "macro", "baseline_regime", "universe", "tag_counts")},
                    "breadth": market["breadth"]}
     dash = os.path.join(root, "dashboard")
     write_json(os.path.join(dash, "days", f"{as_of}.json"), day_payload, compact=True)
-    write_json(os.path.join(dash, "ledger.json"), {"updated": as_of, "stats": ledger.stats(picks), "picks": picks}, compact=True)
+    write_json(os.path.join(dash, "ledger.json"), {"updated": as_of, "stats": ledger.stats(picks), "picks": picks,
+                                                   "control": ledger.control_stats(control)}, compact=True)
     days = sorted(name[:10] for name in os.listdir(os.path.join(dash, "days")) if name.endswith(".json"))
     write_json(os.path.join(dash, "index.json"), {"latest": days[-1], "days": days}, compact=True)
     log("publish.payload", as_of=as_of, candidates=len(result["candidates"]), ledger=len(picks))
@@ -320,12 +323,39 @@ def _update_ledger(root, as_of, result, feats, published_utc):
     for c in result["candidates"]:
         pick = ledger.new_pick(as_of, c, c["levels"], feats[c["ticker"]], c["sector"], published_utc)
         picks.setdefault(pick["id"], pick)  # a re-publish never rewrites a past call
-    tickers = sorted({p["ticker"] for p in picks.values()} | {"SPY"})
+    return _evaluate_and_write(root, path, picks)
+
+
+def _update_control(root, as_of, feats, risk_on, earnings, members, picks, published_utc):
+    """Track every in-context mechanical signal of `as_of` at fixed levels (see ledger.py).
+    Same hard earnings rule as candidates. `picked` follows the ledger, so a re-publish
+    keeps it in step; outcomes are never rewritten."""
+    path = os.path.join(root, "control.json")
+    rows = {r["id"]: r for r in read_json(path, [])}
+    picked = {p["ticker"] for p in picks if p["as_of"] == as_of}
+    for ticker, f in sorted(feats.items()):
+        setup = ledger.control_setup(f, risk_on)
+        nxt = (earnings.get(ticker) or {}).get("next")
+        if not setup or (nxt and nxt["sessions_away"] < MIN_EARNINGS_SESSIONS):
+            continue
+        c = {"ticker": ticker, "setup": setup, "conviction": 0, "stop_atr": ledger.CONTROL_STOP_ATR,
+             "max_chase_atr": ledger.CONTROL_CHASE_ATR, "targets_r": ledger.CONTROL_TARGETS_R}
+        sector = members.get(ticker, {}).get("sector", "Unknown")
+        row = ledger.new_pick(as_of, c, analysis_mod.levels(c, f), f, sector, published_utc)
+        rows.setdefault(row["id"], row)
+    for r in rows.values():
+        if r["as_of"] == as_of:
+            r["picked"] = r["ticker"] in picked
+    return _evaluate_and_write(root, path, rows)
+
+
+def _evaluate_and_write(root, path, rows):
+    tickers = sorted({r["ticker"] for r in rows.values()} | {"SPY"})
     days, panel = history.load_panel(root, tickers)
-    for p in picks.values():
-        if p["status"] in ("pending", "open") and panel.get(p["ticker"]):
-            ledger.evaluate(p, days, panel[p["ticker"]], panel["SPY"])
-    ordered = sorted(picks.values(), key=lambda p: (p["as_of"], p["ticker"]))
+    for r in rows.values():
+        if r["status"] in ("pending", "open") and panel.get(r["ticker"]):
+            ledger.evaluate(r, days, panel[r["ticker"]], panel["SPY"])
+    ordered = sorted(rows.values(), key=lambda r: (r["as_of"], r["ticker"]))
     write_json(path, ordered)
     return ordered
 

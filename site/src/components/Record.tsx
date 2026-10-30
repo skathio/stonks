@@ -100,6 +100,18 @@ export default function Record({ ledger }: { ledger: Ledger }) {
         All picks <span className="text-xs font-normal text-muted">{picks.length}</span>
       </h2>
       <Card className="mb-3 py-1"><ul className="m-0 pl-0">{picks.map((p) => <PickRow key={p.id} p={p} />)}</ul></Card>
+      {ledger.control && (
+        <Fold title="Agent vs. the bare signal">
+          <GroupList groups={{ "Agent's picks": s, "All signals": ledger.control.all,
+            "Signals it picked": ledger.control.picked, "Signals it passed on": ledger.control.unpicked }} />
+          <p className="mb-1 mt-3 text-xs font-semibold text-muted">Same setup, picked vs. passed on</p>
+          <GroupList groups={ledger.control.by_setup} />
+          <p className="mb-0 mt-2 text-xs text-muted">
+            {ledger.control.rule}. Picked vs. passed on, at the same levels and within one setup, isolates the
+            agent's selection.
+          </p>
+        </Fold>
+      )}
       <Fold title="By conviction"><GroupList groups={ledger.stats.by_conviction} /></Fold>
       <Fold title="By setup"><GroupList groups={ledger.stats.by_setup} /></Fold>
     </>

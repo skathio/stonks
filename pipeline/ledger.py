@@ -18,14 +18,38 @@
 #     in R terms.
 # Outcomes are marked at +5/+10/+20 session closes, with MFE/MAE in R. SPY's
 # return over the same window is recorded as the benchmark.
+#
+# Control arm: every in-context mechanical signal of the day (Chart Check's
+# A/B rule, below), picked or not, is tracked with the same fill model at
+# fixed default levels. Picked vs unpicked rows of the control, at identical
+# levels, measure the agent's selection; picks vs the control measure
+# selection and level choices together.
 # =============================================================================
 import datetime as dt
 from zoneinfo import ZoneInfo
 
+from . import features as feat_mod
+
 COST_FRACTION = 0.002
 HORIZONS = (5, 10, 20)
+LOW_SAMPLE = 30
 ET = ZoneInfo("America/New_York")
 US_OPEN = dt.time(9, 30)
+# The prompt's default levels. Fixed so the control never tunes itself.
+CONTROL_STOP_ATR, CONTROL_CHASE_ATR, CONTROL_TARGETS_R = 2.0, 0.5, [2, 4]
+
+
+def control_setup(feat, risk_on):
+    """Chart Check's in-context signal (hSignal): the SPY gate on, trend stacked, RS rising,
+    not extended, and a breakout on volume or a pullback reclaim. Returns the setup or None."""
+    if not (risk_on and feat and feat.get("eligible") and feat["trend_stack"] and feat["rs_rising"]):
+        return None
+    if feat["ext_ema21_atr"] is None or feat["ext_ema21_atr"] > feat_mod.MAX_EXT_ATR:
+        return None
+    tags = feat.get("tags") or []
+    if "breakout" in tags and "volume_surge" in tags:
+        return "breakout"
+    return "pullback_reclaim" if "pullback_reclaim" in tags else None
 
 
 def new_pick(as_of, candidate, lv, feat, sector, published_utc):
@@ -108,25 +132,40 @@ def evaluate(pick, days, bars, spy_bars):
     return pick
 
 
+def summarize(group):
+    """Aggregate one group of picks. Small samples are flagged, never hidden."""
+    filled = [p for p in group if p["entry"] is not None]
+    out = {"picks": len(group), "filled": len(filled),
+           "not_filled": sum(p["status"] in ("not_filled", "gap_below_stop") for p in group),
+           "stopped": sum(p["status"] == "stopped" for p in group)}
+    for h in HORIZONS:
+        vals = [p["r"][str(h)] for p in filled if str(h) in p["r"]]
+        spy = [p["spy_pct"][str(h)] for p in filled if str(h) in p["spy_pct"]]
+        out[f"n_{h}"] = len(vals)
+        out[f"avg_r_{h}"] = round(sum(vals) / len(vals), 2) if vals else None
+        out[f"win_rate_{h}"] = round(100 * sum(v > 0 for v in vals) / len(vals), 1) if vals else None
+        out[f"spy_avg_pct_{h}"] = round(sum(spy) / len(spy), 2) if spy else None
+    mfes = [p["mfe_r"] for p in filled if p["mfe_r"] is not None]
+    out["avg_mfe_r"] = round(sum(mfes) / len(mfes), 2) if mfes else None
+    out["low_sample"] = out[f"n_{max(HORIZONS)}"] < LOW_SAMPLE
+    return out
+
+
+def control_stats(rows):
+    return {"all": summarize(rows),
+            "picked": summarize([r for r in rows if r["picked"]]),
+            "unpicked": summarize([r for r in rows if not r["picked"]]),
+            # The control is mostly pullbacks, the picks mostly breakouts: compare within a setup.
+            "by_setup": {f"{label} · {'picked' if arm else 'passed on'}":
+                         summarize([r for r in rows if r["setup"] == setup and r["picked"] == arm])
+                         for setup, label in (("breakout", "Breakout"), ("pullback_reclaim", "Pullback")) for arm in (True, False)},
+            "rule": (f"Every in-context A/B signal (SPY gate on, trend stacked, RS rising, not extended, "
+                     f"breakout on {feat_mod.VOL_SURGE}x volume or pullback reclaim) at fixed levels: "
+                     f"stop {CONTROL_STOP_ATR} ATR, buy up to +{CONTROL_CHASE_ATR} ATR")}
+
+
 def stats(picks):
     """Aggregate track record. Small samples are flagged, never hidden."""
-    def summarize(group):
-        filled = [p for p in group if p["entry"] is not None]
-        out = {"picks": len(group), "filled": len(filled),
-               "not_filled": sum(p["status"] in ("not_filled", "gap_below_stop") for p in group),
-               "stopped": sum(p["status"] == "stopped" for p in group)}
-        for h in HORIZONS:
-            vals = [p["r"][str(h)] for p in filled if str(h) in p["r"]]
-            spy = [p["spy_pct"][str(h)] for p in filled if str(h) in p["spy_pct"]]
-            out[f"n_{h}"] = len(vals)
-            out[f"avg_r_{h}"] = round(sum(vals) / len(vals), 2) if vals else None
-            out[f"win_rate_{h}"] = round(100 * sum(v > 0 for v in vals) / len(vals), 1) if vals else None
-            out[f"spy_avg_pct_{h}"] = round(sum(spy) / len(spy), 2) if spy else None
-        mfes = [p["mfe_r"] for p in filled if p["mfe_r"] is not None]
-        out["avg_mfe_r"] = round(sum(mfes) / len(mfes), 2) if mfes else None
-        out["low_sample"] = out[f"n_{max(HORIZONS)}"] < 30
-        return out
-
     by_conviction = {str(k): summarize([p for p in picks if p["conviction"] == k]) for k in range(1, 6)}
     by_setup = {}
     for p in picks:
