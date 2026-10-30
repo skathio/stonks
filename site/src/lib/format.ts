@@ -1,7 +1,7 @@
 // =============================================================================
 // Pure formatting helpers for the dashboard (no DOM), unit-tested in tests/.
 // =============================================================================
-import type { Earnings, PickStatus, Tone } from "./types.ts";
+import type { BookFlag, Earnings, PickStatus, ReviewAction, Tone } from "./types.ts";
 
 const DASH = "—";
 
@@ -48,7 +48,7 @@ const STATUS: Record<PickStatus, string> = {
   pending: "Awaiting entry",
   open: "Open",
   stopped: "Stopped out",
-  complete: "Complete (20 sessions)",
+  complete: "Complete (126 sessions)",
   not_filled: "Not filled (opened above chase limit)",
   gap_below_stop: "Not filled (gapped below stop)",
 };
@@ -143,6 +143,41 @@ export function earningsChip(earnings: Earnings | null | undefined, horizon: unk
   const n = earnings.sessions_away;
   const inside = isNum(n) && isNum(horizon) && n <= horizon;
   return { text: `Earnings ${shortDate(earnings.date)} · ${n}d${earnings.conflict ? " ⚠" : ""}`, tone: inside ? "warn" : "muted", inside };
+}
+
+/** v2 earnings line: next report (or its estimate) and how many fall inside the hold. */
+export function nextReport(earnings: Earnings | null | undefined, inHold: unknown): Note {
+  if (!earnings) return { text: "Next report: no date", tone: "muted" };
+  const when = `${shortDate(earnings.date)}${earnings.estimated ? " (est.)" : ""}, ${earnings.sessions_away} sessions`;
+  const count = isNum(inHold) && inHold > 0 ? `; ${inHold} report${inHold === 1 ? "" : "s"} in the hold` : "";
+  const soon = isNum(earnings.sessions_away) && earnings.sessions_away < 15;
+  return { text: `Next report ${when}${count}`, tone: soon ? "warn" : "muted", inside: soon };
+}
+
+/** 84 sessions -> "about 4 months" (21 sessions a month). */
+export function sessionsToMonths(n: unknown): string {
+  if (!isNum(n)) return DASH;
+  const m = Math.round(n / 21);
+  return m <= 1 ? "about 1 month" : `about ${m} months`;
+}
+
+const FLAG: Record<BookFlag, { text: string; tone: Tone }> = {
+  near_stop: { text: "Within 1 ATR of the stop", tone: "bad" },
+  below_ema50: { text: "Below the 50-day trend", tone: "warn" },
+  rs_faded: { text: "RS rank under 60", tone: "warn" },
+  earnings_soon: { text: "Report within 5 sessions", tone: "warn" },
+  review_due: { text: "Planned hold reached: review", tone: "warn" },
+  upside_reached: { text: "+20% traded", tone: "good" },
+};
+
+export function flagInfo(flag: string): { text: string; tone: Tone } {
+  return FLAG[flag as BookFlag] ?? { text: flag, tone: "muted" };
+}
+
+const ACTION_TONE: Record<ReviewAction, Tone> = { hold: "muted", add: "good", trim: "warn", exit: "bad" };
+
+export function actionTone(action: string): Tone {
+  return ACTION_TONE[action as ReviewAction] ?? "muted";
 }
 
 /** Size multiplier text: 0.23 -> "×0.23". */

@@ -10,11 +10,11 @@ Massive's free plan releases the previous session's bars.
 07:00 CET routine (Opus 5.5, high effort)
   ├─ clones skathio/stonks (public: code + encrypted site)
   │         skathio/stonks-data (private: price history, prompt, plaintext runs)
-  ├─ pipeline prepare   history update → features → regime/breadth/macro → earnings
-  ├─ agent reads market.json + universe.csv, shortlists ≤ 40
+  ├─ pipeline prepare   history update → features → regime/breadth/macro/momentum → earnings → open book
+  ├─ agent reads market.json + book.json + universe.csv, reviews the book, shortlists ≤ 40
   ├─ pipeline enrich    Finnhub news/analyst/metrics + SEC filings for the shortlist
-  ├─ agent writes analysis.json (judgment only; no prices)
-  ├─ pipeline publish   validate → derive ATR levels → ledger + control arm → encrypt into site/data
+  ├─ agent writes analysis.json (contract v2: ≤ 2 new positions + reviews; judgment only, no prices)
+  ├─ pipeline publish   validate + book caps → levels, +20% mark, position size → ledger + control arm → encrypt
   └─ pipeline ship      push stonks-data, then stonks → deploy.yml (hashira) → GitHub Pages
 ```
 

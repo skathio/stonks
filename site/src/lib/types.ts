@@ -4,7 +4,9 @@
 // =============================================================================
 
 export type Tone = "good" | "warn" | "bad" | "muted";
-export type Horizon = "5" | "10" | "20";
+/** Ledger marks in sessions (rules v2: position trades). */
+export type Horizon = "21" | "42" | "63" | "126";
+export const HORIZONS: Horizon[] = ["21", "42", "63", "126"];
 
 export interface DashboardIndex {
   days: string[];
@@ -16,6 +18,8 @@ export interface Earnings {
   hour?: string | null;
   sessions_away: number;
   conflict?: boolean;
+  /** One quarter after the last report: no date published yet. */
+  estimated?: boolean;
 }
 
 export interface Catalyst {
@@ -41,6 +45,7 @@ export interface Features {
   pct_off_52wh: number;
   ret_21d_pct: number;
   ret_63d_pct: number;
+  ret_126d_pct?: number | null;
   rs_rank: number;
   rs_rising: boolean;
   tags: string[];
@@ -54,7 +59,11 @@ export interface Levels {
   ref_close: number;
   stop: number;
   stop_pct: number;
+  /** v2: the +20% reference level (never an exit); v1: profit targets. */
   targets: number[];
+  targets_r?: number[];
+  /** Account % for the position: 1% risk at the stop x momentum size scale (v2). */
+  position_pct?: number | null;
 }
 
 export interface Candidate {
@@ -68,15 +77,20 @@ export interface Candidate {
   risks: string[];
   invalidation: string;
   earnings: Earnings | null;
-  earnings_inside_horizon: boolean;
+  /** v1 days only. */
+  earnings_inside_horizon?: boolean;
+  /** v2: reports expected inside the planned hold. */
+  reports_in_hold?: number;
   earnings_plan?: string | null;
+  upside_case?: string;
   chart_checks: string[];
   features: Features;
   levels: Levels;
   horizon_sessions: number;
   max_chase_atr: number;
   stop_atr: number;
-  targets_r: number[];
+  /** v1 days only. */
+  targets_r?: number[];
   news?: NewsItem[];
 }
 
@@ -107,6 +121,9 @@ export interface Analysis {
   as_of: string;
   regime: Regime;
   candidates: Candidate[];
+  /** v2: the agent's calls on open positions. */
+  reviews?: Review[];
+  prompt_version?: string;
   watchlist: WatchItem[];
   avoid: AvoidItem[];
   market_notes: string[];
@@ -175,12 +192,60 @@ export interface Momentum {
   size_scale: number;
 }
 
+export type ReviewAction = "hold" | "trim" | "exit" | "add";
+
+export interface Review {
+  ticker: string;
+  action: ReviewAction;
+  note: string;
+}
+
+/** Benchmark-relative mark of an open position (ledger.evaluate). */
+export interface Mark {
+  date: string;
+  sessions: number;
+  pct: number;
+  spy_pct?: number;
+  rsp_pct?: number;
+}
+
+export type BookFlag = "near_stop" | "below_ema50" | "rs_faded" | "earnings_soon" | "review_due" | "upside_reached";
+
+/** One open position (daily.book_view). */
+export interface Position {
+  ticker: string;
+  sector: string;
+  as_of: string;
+  status: PickStatus;
+  entry: number | null;
+  entry_date: string | null;
+  stop: number;
+  close: number | null;
+  stop_dist_pct: number | null;
+  position_pct?: number | null;
+  horizon_sessions?: number | null;
+  mark: Mark | null;
+  next_earnings: Earnings | null;
+  flags: BookFlag[];
+  review: Review | null;
+}
+
+export interface BookLimits {
+  max_open: number;
+  max_per_sector: number;
+  max_new: number;
+  risk_per_trade_pct: number;
+}
+
 export interface Day {
   as_of: string;
   generated_utc: string;
   analysis: Analysis;
   market: Market;
   momentum?: Momentum | null;
+  /** v2 days: open positions and the book limits. */
+  book?: Position[];
+  limits?: BookLimits;
   breadth: BreadthDay[];
 }
 
@@ -202,52 +267,60 @@ export interface Pick {
   stop: number;
   stop_atr: number;
   targets: number[];
-  targets_r: number[];
+  targets_r?: number[];
   targets_hit?: (string | null)[];
   entry: number | null;
   entry_date: string | null;
   exit_date: string | null;
   exit_r: number | null;
+  exit_pct?: number | null;
   exit_reason: string | null;
   r: Partial<Record<Horizon, number>>;
+  pct?: Partial<Record<Horizon, number>>;
   spy_pct: Partial<Record<Horizon, number>>;
+  rsp_pct?: Partial<Record<Horizon, number>>;
+  mark?: Mark | null;
   mfe_r: number | null;
   mae_r: number | null;
   size_scale?: number | null;
+  position_pct?: number | null;
+  horizon_sessions?: number | null;
+  /** "v1" = swing rules (2 ATR), "v2" = position rules. */
+  rules_version?: string;
 }
 
-export interface LedgerStats {
+type PerHorizon<P extends string, T> = { [K in `${P}_${Horizon}`]?: T };
+
+/** ledger.summarize: per-horizon keys like n_63, avg_pct_63, avg_ex_rsp_63. */
+export type LedgerStats = {
   picks: number;
   filled: number;
   not_filled: number;
   stopped: number;
+  open?: number;
+  reached_upside?: number;
   low_sample: boolean;
-  n_5: number;
-  n_10: number;
-  n_20: number;
-  avg_r_5: number | null;
-  avg_r_10: number | null;
-  avg_r_20: number | null;
-  win_rate_5: number | null;
-  win_rate_10: number | null;
-  win_rate_20: number | null;
-  spy_avg_pct_5: number | null;
-  spy_avg_pct_10: number | null;
-  spy_avg_pct_20: number | null;
+  avg_mark_pct?: number | null;
+  avg_mark_ex_rsp?: number | null;
   avg_mfe_r: number | null;
-}
+} & PerHorizon<"n" | "weeks", number>
+  & PerHorizon<"avg_pct" | "avg_r" | "win_rate" | "avg_ex_rsp" | "avg_ex_spy" | "beat_rsp", number | null>;
 
 export interface Ledger {
   updated: string;
   picks: Pick[];
   stats: {
+    version?: string;
+    headline?: number;
     all: LedgerStats;
+    by_version?: Record<string, LedgerStats>;
     by_conviction: Record<string, LedgerStats>;
     by_setup: Record<string, LedgerStats>;
     cost_assumption: string;
   };
   /** Control arm: every in-context mechanical signal at fixed levels (pipeline/ledger.py). */
   control?: {
+    version?: string;
     all: LedgerStats; picked: LedgerStats; unpicked: LedgerStats;
     by_setup: Record<string, LedgerStats>; rule: string;
   };

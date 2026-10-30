@@ -86,16 +86,19 @@ class SplitAdjustment(unittest.TestCase):
         self.assertEqual(history.split_factors(splits, days[-1]), {})
 
 
-FEATS = {"AAA": {"eligible": True, "close": 100.0, "atr": 2.0}, "BBB": {"eligible": False, "close": 4.0, "atr": 0.2}}
+FEATS = {"AAA": {"eligible": True, "close": 100.0, "atr": 2.0}, "BBB": {"eligible": False, "close": 4.0, "atr": 0.2},
+         "WILD": {"eligible": True, "close": 100.0, "atr": 4.0}}
 
 
 def good_analysis(**overrides):
     cand = {"ticker": "AAA", "setup": "breakout", "conviction": 4, "thesis": "Tight base under highs, RS leader.",
-            "stop_atr": 2, "max_chase_atr": 0.5, "targets_r": [3, 2], "horizon_sessions": 20,
+            "stop_atr": 4.5, "max_chase_atr": 0.5, "horizon_sessions": 84,
+            "upside_case": "Two more beat-and-raise quarters re-rate it toward the sector multiple.",
+            "earnings_plan": "Hold through the next report at full size; it is 40 sessions away.",
             "invalidation": "Close back inside the base.", "risks": ["Market reversal"],
             "catalysts": [{"date": "2026-10-28", "text": "Guidance raise", "source_url": "https://example.com/x"}]}
     cand.update(overrides)
-    return {"as_of": "2026-10-29",
+    return {"as_of": "2026-10-29", "contract": "v2", "prompt_version": "v2.0",
             "regime": {"label": "risk_on", "exposure": "full", "summary": "Broad strength.", "evidence": ["SPY > EMA50"]},
             "candidates": [cand]}
 
@@ -104,19 +107,28 @@ class AnalysisValidation(unittest.TestCase):
     def test_valid_and_levels(self):
         out = analysis.validate(good_analysis(), "2026-10-29", FEATS)
         c = out["candidates"][0]
-        self.assertEqual(c["targets_r"], [2.0, 3.0])
         lv = analysis.levels(c, FEATS["AAA"])
-        self.assertEqual(lv["stop"], 96.0)
+        self.assertEqual(lv["stop"], 91.0)          # 4.5 ATR
         self.assertEqual(lv["entry_max"], 101.0)
-        self.assertEqual(lv["targets"], [108.0, 112.0])
+        self.assertEqual(lv["targets"], [120.0])    # the +20% reference, not an exit
+        self.assertEqual(lv["targets_r"], [2.22])
+
+    def test_position_size(self):
+        self.assertEqual(analysis.position_size(-9.0, 1.0, 40), 11.1)    # 1% risk / 9% stop
+        self.assertEqual(analysis.position_size(-9.0, 0.23, 40), 2.6)    # x momentum scale
+        self.assertEqual(analysis.position_size(-9.0, 0.23, 10), 1.3)    # report under 15 sessions: half
+        self.assertEqual(analysis.position_size(-3.0, 1.0, None), 15.0)  # capped
+        self.assertIsNone(analysis.position_size(0, 1.0, None))
 
     def test_rejections(self):
         cases = [
             (dict(ticker="ZZZ"), "not in today's feature table"),
             (dict(ticker="BBB"), "price/liquidity floor"),
-            (dict(stop_atr=0.5), "outside"),
+            (dict(stop_atr=2), "outside"),
+            (dict(horizon_sessions=20), "outside"),
+            (dict(ticker="WILD", stop_atr=4.5), "max 15"),
             (dict(setup="moonshot"), "setup must be"),
-            (dict(targets_r=[0.5]), "R multiples"),
+            (dict(upside_case=""), "empty"),
             (dict(catalysts=[{"date": "soon", "text": "x"}]), "undated"),
             (dict(catalysts=[{"date": "2026-10-01", "text": "x", "source_url": "http://x"}]), "https"),
         ]
@@ -124,6 +136,25 @@ class AnalysisValidation(unittest.TestCase):
             with self.subTest(msg=msg):
                 with self.assertRaisesRegex(analysis.AnalysisError, msg):
                     analysis.validate(good_analysis(**override), "2026-10-29", FEATS)
+
+    def test_contract_held_names_and_reviews(self):
+        raw = good_analysis()
+        del raw["contract"]
+        with self.assertRaisesRegex(analysis.AnalysisError, "contract"):
+            analysis.validate(raw, "2026-10-29", FEATS)
+        with self.assertRaisesRegex(analysis.AnalysisError, "already held"):
+            analysis.validate(good_analysis(), "2026-10-29", FEATS, held={"AAA"})
+        raw = good_analysis()
+        raw["candidates"] = raw["candidates"] * 3
+        with self.assertRaisesRegex(analysis.AnalysisError, "duplicate|at most 2"):
+            analysis.validate(raw, "2026-10-29", FEATS)
+        raw = good_analysis(ticker="WILD", stop_atr=3)
+        raw["reviews"] = [{"ticker": "AAA", "action": "trim", "note": "Lost the 50-day."}]
+        out = analysis.validate(raw, "2026-10-29", FEATS, held={"AAA"})
+        self.assertEqual(out["reviews"][0]["action"], "trim")
+        raw["reviews"][0]["ticker"] = "ZZZ"
+        with self.assertRaisesRegex(analysis.AnalysisError, "not an open position"):
+            analysis.validate(raw, "2026-10-29", FEATS, held={"AAA"})
 
     def test_wrong_as_of_and_none_exposure(self):
         with self.assertRaisesRegex(analysis.AnalysisError, "as_of"):
@@ -135,6 +166,8 @@ class AnalysisValidation(unittest.TestCase):
 
 
 class LedgerFills(unittest.TestCase):
+    """Pick AAA: close 100, ATR 2, stop 4.5 ATR = 91, buy up to 101, +20% reference 120."""
+
     def _pick(self):
         c = analysis.validate(good_analysis(), "2026-10-29", FEATS)["candidates"][0]
         return ledger.new_pick("2026-10-29", c, analysis.levels(c, FEATS["AAA"]), FEATS["AAA"], "Tech",
@@ -151,38 +184,81 @@ class LedgerFills(unittest.TestCase):
 
     def test_gap_below_stop(self):
         days = self._days(1)
-        p = ledger.evaluate(self._pick(), days, [None, (95, 96, 94, 95, 1)], [None, (1, 1, 1, 1, 1)])
+        p = ledger.evaluate(self._pick(), days, [None, (90, 91, 89, 90, 1)], [None, (1, 1, 1, 1, 1)])
         self.assertEqual(p["status"], "gap_below_stop")
 
     def test_stop_hit_exits_at_stop_minus_costs(self):
         days = self._days(3)
-        bars = [None, (100, 101, 99, 100, 1), (99, 99.5, 95, 96, 1), (96, 97, 95, 96, 1)]
+        bars = [None, (100, 101, 99, 100, 1), (99, 99.5, 90, 92, 1), (92, 93, 91.5, 92, 1)]
         p = ledger.evaluate(self._pick(), days, bars, bars)
         self.assertEqual(p["status"], "stopped")
-        self.assertAlmostEqual(p["exit_r"], -1.0 - 0.002 * 100 / 4, places=2)
+        self.assertAlmostEqual(p["exit_r"], -1.0 - 0.002 * 100 / 9, places=2)
+        self.assertAlmostEqual(p["exit_pct"], -9.0 - 0.2, places=2)
 
     def test_gap_through_stop_fills_at_open(self):
         days = self._days(2)
-        bars = [None, (100, 101, 99, 100, 1), (90, 91, 89, 90, 1)]
+        bars = [None, (100, 101, 99, 100, 1), (85, 86, 84, 85, 1)]
         p = ledger.evaluate(self._pick(), days, bars, bars)
-        self.assertAlmostEqual(p["exit_r"], (90 - 100) / 4 - 0.002 * 100 / 4, places=2)
+        self.assertAlmostEqual(p["exit_r"], (85 - 100) / 9 - 0.002 * 100 / 9, places=2)
 
-    def test_horizons_targets_and_completion(self):
-        days = self._days(20)
-        bars = [None] + [(100 + i, 101 + i, 99.5 + i, 100.5 + i, 1) for i in range(20)]
-        p = ledger.evaluate(self._pick(), days, bars, bars)
+    def test_horizons_benchmarks_and_completion(self):
+        n = max(ledger.HORIZONS)
+        days = self._days(n)
+        bars = [None] + [(100 + i * 0.2, 101 + i * 0.2, 99.5 + i * 0.2, 100.5 + i * 0.2, 1) for i in range(n)]
+        flat = [None] + [(100, 100, 100, 100, 1)] * n
+        p = ledger.evaluate(self._pick(), days, bars, flat, flat)
         self.assertEqual(p["status"], "complete")
-        self.assertEqual(set(p["r"]), {"5", "10", "20"})
-        self.assertTrue(all(p["targets_hit"]))
-        self.assertEqual(p["spy_pct"]["20"], round(100 * (119.5 / 100 - 1), 2))
+        self.assertEqual(set(p["pct"]), {"21", "42", "63", "126"})
+        self.assertEqual(p["pct"]["126"], round(100 * (125.5 / 100 - 1) - 0.2, 2))
+        self.assertEqual((p["spy_pct"]["126"], p["rsp_pct"]["126"]), (0.0, 0.0))
+        self.assertTrue(p["targets_hit"][0])  # +20% traded
         s = ledger.stats([p])
-        self.assertEqual(s["all"]["n_20"], 1)
+        self.assertEqual(s["all"]["n_126"], 1)
+        self.assertEqual(s["all"]["avg_ex_rsp_126"], p["pct"]["126"])
+        self.assertEqual(s["all"]["reached_upside"], 1)
         self.assertTrue(s["all"]["low_sample"])
+
+    def test_open_position_has_a_mark(self):
+        days = self._days(5)
+        bars = [None] + [(100, 102, 99, 101, 1)] * 5
+        p = ledger.evaluate(self._pick(), days, bars, bars, bars)
+        self.assertEqual(p["status"], "open")
+        self.assertEqual(p["mark"]["sessions"], 5)
+        self.assertEqual(p["mark"]["pct"], 0.8)
+        self.assertEqual(p["mark"]["rsp_pct"], 1.0)
+
+    def test_entry_bar_outside_window_is_left_alone(self):
+        days = days_from(dt.date(2026, 11, 2), 3)  # the window starts after the pick date
+        bars = [(130, 131, 129, 130, 1)] * 3
+        p = ledger.evaluate(self._pick(), days, bars, bars)
+        self.assertEqual(p["status"], "pending")
 
     def test_pending_without_new_bars(self):
         days = self._days(0)
         p = ledger.evaluate(self._pick(), days, [None], [None])
         self.assertEqual(p["status"], "pending")
+
+    def test_split_during_hold_keeps_the_trade(self):
+        # 4:1 split two sessions after entry. load_panel adjusts all bars to the new basis;
+        # to_pick_basis must put them back in the pick's basis.
+        days = self._days(4)
+        raw = [(100, 100, 100, 100, 1), (100, 101, 99, 100, 1), (100, 102, 99.5, 101, 1),
+               (25.5, 25.8, 25.2, 25.6, 4), (25.6, 26, 25.4, 25.9, 4)]
+        splits = [{"ticker": "AAA", "execution_date": days[3].isoformat(), "split_from": 1, "split_to": 4}]
+        factors = history.split_factors(splits, days[-1])["AAA"]
+        adjusted = history.adjust_series(days, raw, factors)
+        p = ledger.evaluate(self._pick(), days, daily.to_pick_basis(adjusted, factors, "2026-10-29"), raw)
+        self.assertEqual(p["status"], "open")
+        self.assertEqual(p["entry"], 100.0)
+        self.assertEqual(p["mark"]["pct"], round(100 * (25.9 * 4 / 100 - 1) - 0.2, 2))
+
+
+class EarningsInHold(unittest.TestCase):
+    def test_reports_counted_per_quarter(self):
+        self.assertEqual(daily.reports_in_hold(None, 126), 0)
+        self.assertEqual(daily.reports_in_hold({"sessions_away": 130}, 126), 0)
+        self.assertEqual(daily.reports_in_hold({"sessions_away": 10}, 42), 1)
+        self.assertEqual(daily.reports_in_hold({"sessions_away": 10}, 126), 2)
 
 
 if __name__ == "__main__":
@@ -248,14 +324,6 @@ class LedgerPublishTime(unittest.TestCase):
         self.assertEqual(p["entry_date"], "2026-10-30")
 
 
-class LowVolumeBreakout(unittest.TestCase):
-    def test_matches_chart_check_caution(self):
-        self.assertTrue(daily.low_volume_breakout(["breakout", "post_squeeze"]))
-        self.assertFalse(daily.low_volume_breakout(["breakout", "volume_surge"]))
-        self.assertFalse(daily.low_volume_breakout(["breakout", "pullback_reclaim"]))
-        self.assertFalse(daily.low_volume_breakout(["post_squeeze", "near_52w_high"]))
-
-
 class NodeTsFlags(unittest.TestCase):
     def test_flags_by_node_version(self):
         self.assertEqual(daily.node_ts_args("v26.2.0"), [])
@@ -314,10 +382,24 @@ class ControlArm(unittest.TestCase):
                              earnings={"CCC": {"next": {"sessions_away": 2}}})
             self.assertEqual([(r["ticker"], r["setup"], r["picked"]) for r in rows],
                              [("AAA", "breakout", True), ("BBB", "pullback_reclaim", False)])
-            self.assertEqual(rows[0]["stop"], 96.0)  # 2 ATR
+            self.assertEqual(rows[0]["stop"], 91.0)  # 4.5 ATR
             self.assertEqual(rows[0]["entry_max"], 101.0)  # +0.5 ATR
             # A re-publish with a different pick moves the flag but keeps the rows.
             rows = self._run(root, [{"as_of": "2026-10-29", "ticker": "BBB"}])
             self.assertEqual({r["ticker"]: r["picked"] for r in rows}, {"AAA": False, "BBB": True, "CCC": False})
             s = ledger.control_stats(rows)
             self.assertEqual((s["all"]["picks"], s["picked"]["picks"], s["unpicked"]["picks"]), (3, 1, 2))
+
+    def test_one_open_row_per_ticker_and_v1_rows_kept(self):
+        with tempfile.TemporaryDirectory() as root:
+            old = ledger.new_pick("2026-10-28", {"ticker": "BBB", "setup": "breakout", "conviction": 0, "stop_atr": 2.0},
+                                  {"ref_close": 100, "atr": 2, "stop": 96, "entry_max": 101, "targets": [108]},
+                                  {}, "Tech", "2026-10-29T06:05:00+00:00")
+            del old["rules_version"]  # written before versioning
+            open_v2 = dict(old, id="2026-10-28:AAA", ticker="AAA", rules_version="v2")
+            daily.write_json(os.path.join(root, "control.json"), [old, open_v2])
+            rows = self._run(root, [])
+            ids = {r["id"]: r for r in rows}
+            self.assertNotIn("2026-10-29:AAA", ids)        # AAA is still open under v2
+            self.assertIn("2026-10-29:BBB", ids)           # BBB's open row is v1: the v2 arm starts fresh
+            self.assertEqual(ids["2026-10-28:BBB"]["rules_version"], "v1")
