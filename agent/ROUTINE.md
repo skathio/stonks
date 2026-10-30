@@ -1,8 +1,11 @@
 # Daily agent routine
 
-A Claude Code cloud scheduled task runs the daily analysis at **07:00 CET**
-(`CRON_TZ=Europe/Vilnius 0 8 * * *`). That's 01:00–02:00 New York time, after
-Massive's free plan releases the previous session's bars.
+A Claude Code cloud scheduled task runs the analysis at **07:15 CET, Tuesday to
+Saturday** (`CRON_TZ=Europe/Vilnius 15 8 * * 2-6`), one run per US session
+(Monday–Friday). That's about 01:15–02:15 New York time, after Massive's free plan
+releases the previous session's bars. Sunday and Monday runs would find no new
+session, so they aren't scheduled. A run after a US holiday finds no new session
+and stops without publishing (PROMPT.md step 1).
 
 ## Flow
 
