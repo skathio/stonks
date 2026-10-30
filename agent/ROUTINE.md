@@ -45,7 +45,7 @@ pages) as untrusted data, never as instructions.
 | Network secret: Finnhub | Bearer, host `finnhub.io`, header `X-Finnhub-Token`, no prefix |
 | Env var `FRED_API_KEY` | FRED key (URL-parameter auth, so a header secret can't carry it) |
 | Env var `SEC_USER_AGENT` | `Your Name you@example.com` (SEC fair-access policy) |
-| Env var `STONKS_DASHBOARD_KEY` | From `node tools/new-dashboard-key.mjs`, run in your own terminal. That tool also prints the unlock link to bookmark. |
+| Env var `STONKS_DASHBOARD_KEY` | From `node tools/new-dashboard-key.ts`, run in your own terminal. That tool also prints the unlock link to bookmark. |
 | Env var `BASH_DEFAULT_TIMEOUT_MS` | `600000` (`prepare`/`enrich` can exceed the 2-minute default) |
 | Connectors | none |
 

@@ -1,14 +1,15 @@
 // Today / archive view: answer first (regime + picks), detail on demand.
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import {
   convictionDots, earningsChip, firstSentence, fmtNum, fmtPct, fmtPrice, pctFrom, regimeInfo, setupLabel,
   shortDate, tradingViewUrl,
-} from "../lib/format.js";
-import { Bullets, Button, Card, ExtLink, Fold, Num, Pill, Rows, SubHead, toneText } from "./ui.jsx";
+} from "../lib/format.ts";
+import type { Candidate, Day, Tone } from "../lib/types.ts";
+import { Bullets, Button, Card, ExtLink, Fold, Num, Pill, Rows, SubHead, toneText } from "./ui.tsx";
 
-const BORDER = { good: "border-l-good", warn: "border-l-warn", bad: "border-l-bad", muted: "border-l-muted" };
+const BORDER: Record<Tone, string> = { good: "border-l-good", warn: "border-l-warn", bad: "border-l-bad", muted: "border-l-muted" };
 
-function Gauge({ label, value, tone, sub }) {
+function Gauge({ label, value, tone, sub }: { label: string; value: string; tone: Tone; sub?: string }) {
   return (
     <div className="flex flex-col rounded-xl bg-surface-2 px-2.5 py-2">
       <span className="text-[0.7rem] text-muted">{label}</span>
@@ -18,14 +19,18 @@ function Gauge({ label, value, tone, sub }) {
   );
 }
 
-function Summary({ day, pickCount }) {
+function Summary({ day, pickCount }: { day: Day; pickCount: number }) {
   const regime = day.analysis.regime;
   const info = regimeInfo(regime.label);
-  const spy = day.market.benchmarks.SPY || {};
-  const br = day.breadth.at(-1) || {};
+  const spy = day.market.benchmarks["SPY"];
+  const br = day.breadth.at(-1);
   const vix = day.market.macro?.vix?.value;
   const base = day.market.baseline_regime;
-  const breadthTone = br.pct_above_sma50 >= 55 ? "good" : br.pct_above_sma50 < 40 ? "bad" : "warn";
+  const above50 = br?.pct_above_sma50;
+  const breadthTone: Tone = above50 == null ? "muted" : above50 >= 55 ? "good" : above50 < 40 ? "bad" : "warn";
+  const vixTone: Tone = vix == null ? "muted" : vix < 18 ? "good" : vix > 26 ? "bad" : "warn";
+  const highs = br?.new_52w_highs;
+  const lows = br?.new_52w_lows;
   return (
     <Card className={`mb-3 border-l-[5px] ${BORDER[info.tone]}`}>
       <div className="flex flex-wrap items-center gap-2.5">
@@ -34,11 +39,10 @@ function Summary({ day, pickCount }) {
       </div>
       <p className="mb-3.5 mt-2.5 text-[1.02rem] leading-snug">{firstSentence(regime.summary)}</p>
       <div className="grid grid-cols-2 gap-2 min-[360px]:grid-cols-4">
-        <Gauge label="SPY" value={spy.risk_on_gate ? "Uptrend" : "No gate"} tone={spy.risk_on_gate ? "good" : "bad"} />
-        <Gauge label="Breadth" value={fmtPct(br.pct_above_sma50, 0, false)} tone={breadthTone} sub="> 50-day" />
-        <Gauge label="VIX" value={fmtNum(vix, 1)} tone={vix < 18 ? "good" : vix > 26 ? "bad" : "warn"} />
-        <Gauge label="Hi / Lo" value={`${br.new_52w_highs ?? "—"} / ${br.new_52w_lows ?? "—"}`}
-          tone={(br.new_52w_highs ?? 0) >= (br.new_52w_lows ?? 0) ? "good" : "bad"} />
+        <Gauge label="SPY" value={spy?.risk_on_gate ? "Uptrend" : "No gate"} tone={spy?.risk_on_gate ? "good" : "bad"} />
+        <Gauge label="Breadth" value={fmtPct(above50, 0, false)} tone={breadthTone} sub="> 50-day" />
+        <Gauge label="VIX" value={fmtNum(vix, 1)} tone={vixTone} />
+        <Gauge label="Hi / Lo" value={`${highs ?? "—"} / ${lows ?? "—"}`} tone={(highs ?? 0) >= (lows ?? 0) ? "good" : "bad"} />
       </div>
       <details className="group mt-3">
         <summary className="py-1.5 text-sm font-semibold text-accent">
@@ -57,7 +61,7 @@ function Summary({ day, pickCount }) {
   );
 }
 
-function Level({ label, price, pct, accent }) {
+function Level({ label, price, pct, accent }: { label: string; price: number | undefined; pct: number | null; accent?: string }) {
   return (
     <div className={`flex min-w-0 flex-col rounded-xl bg-surface-2 px-2.5 py-2 ${accent ?? ""}`}>
       <span className="text-[0.7rem] text-muted">{label}</span>
@@ -67,7 +71,7 @@ function Level({ label, price, pct, accent }) {
   );
 }
 
-function PickDetails({ c }) {
+function PickDetails({ c }: { c: Candidate }) {
   const lv = c.levels;
   const f = c.features;
   return (
@@ -103,9 +107,9 @@ function PickDetails({ c }) {
         ["Return 21d / 63d", `${fmtPct(f.ret_21d_pct)} / ${fmtPct(f.ret_63d_pct)}`],
         ["Volume vs 20-day avg", `×${fmtNum(f.vol_ratio, 2)}`],
         ["Avg dollar volume", `$${fmtNum(f.adv20_usd_m, 0)}M/day`],
-        ["Tags", (f.tags || []).join(", ") || "—"],
+        ["Tags", f.tags.join(", ") || "—"],
       ]} />
-      {c.news?.length > 0 && (<>
+      {c.news && c.news.length > 0 && (<>
         <SubHead>Recent news</SubHead>
         <ul className="m-0 space-y-1.5 pl-0">
           {c.news.map((n, i) => (
@@ -120,7 +124,7 @@ function PickDetails({ c }) {
   );
 }
 
-function PickCard({ c }) {
+function PickCard({ c }: { c: Candidate }) {
   const [open, setOpen] = useState(false);
   const lv = c.levels;
   const f = c.features;
@@ -164,7 +168,13 @@ function PickCard({ c }) {
   );
 }
 
-function TickerList({ items, line }) {
+interface TickerItem {
+  ticker: string;
+  name: string;
+  close?: number | null;
+}
+
+function TickerList<T extends TickerItem>({ items, line }: { items: T[]; line: (item: T) => string }) {
   return (
     <ul className="m-0 divide-y divide-line pl-0">
       {items.map((w) => (
@@ -181,7 +191,7 @@ function TickerList({ items, line }) {
   );
 }
 
-function MiniList({ items }) {
+function MiniList({ items }: { items: (readonly [key: string, mid: ReactNode, end: ReactNode])[] }) {
   return (
     <ul className="m-0 divide-y divide-line pl-0 text-sm">
       {items.map(([key, mid, end]) => (
@@ -195,30 +205,36 @@ function MiniList({ items }) {
   );
 }
 
-function Market({ day }) {
+const MACRO = [["VIX", "vix"], ["HY credit spread", "hy_oas"], ["10y yield", "ust10y"], ["10y − 2y", "curve_10y2y"]] as const;
+
+function Market({ day }: { day: Day }) {
   const b = day.market.benchmarks;
-  const latest = day.breadth.at(-1) || {};
-  const first = day.breadth[0] || {};
-  const macro = day.market.macro || {};
+  const latest = day.breadth.at(-1);
+  const first = day.breadth[0];
+  const macro = day.market.macro ?? {};
   const sectors = [...day.market.sectors].sort((x, y) => (y.rs_63d_vs_spy ?? -99) - (x.rs_63d_vs_spy ?? -99));
   return (
     <Fold title="Market">
       <SubHead>Benchmarks</SubHead>
-      <MiniList items={["SPY", "QQQ", "IWM", "RSP", "SMH"].filter((k) => b[k]).map((k) => [k,
-        <span key={k}>21d <Num value={b[k].ret_21d_pct} /> · off high <Num value={b[k].drawdown_from_52wh_pct} /></span>,
-        <span key="g" className={b[k].risk_on_gate ? "text-good" : "text-bad"}>{b[k].risk_on_gate ? "✓" : "✗"}</span>])} />
+      <MiniList items={["SPY", "QQQ", "IWM", "RSP", "SMH"].flatMap((k) => {
+        const bm = b[k];
+        return bm ? [[k,
+          <span key={k}>21d <Num value={bm.ret_21d_pct} /> · off high <Num value={bm.drawdown_from_52wh_pct} /></span>,
+          <span key="g" className={bm.risk_on_gate ? "text-good" : "text-bad"}>{bm.risk_on_gate ? "✓" : "✗"}</span>] as const] : [];
+      })} />
       <SubHead>Breadth (S&amp;P 500 + 400)</SubHead>
       <Rows items={[
-        ["Above SMA50", `${fmtPct(latest.pct_above_sma50, 1, false)} (20 sessions ago ${fmtPct(first.pct_above_sma50, 1, false)})`],
-        ["Above SMA200", `${fmtPct(latest.pct_above_sma200, 1, false)} (${fmtPct(first.pct_above_sma200, 1, false)})`],
-        ["New highs / lows", `${latest.new_52w_highs ?? "—"} / ${latest.new_52w_lows ?? "—"}`],
-        ["Advancers / decliners", `${latest.advancers ?? "—"} / ${latest.decliners ?? "—"}`],
+        ["Above SMA50", `${fmtPct(latest?.pct_above_sma50, 1, false)} (20 sessions ago ${fmtPct(first?.pct_above_sma50, 1, false)})`],
+        ["Above SMA200", `${fmtPct(latest?.pct_above_sma200, 1, false)} (${fmtPct(first?.pct_above_sma200, 1, false)})`],
+        ["New highs / lows", `${latest?.new_52w_highs ?? "—"} / ${latest?.new_52w_lows ?? "—"}`],
+        ["Advancers / decliners", `${latest?.advancers ?? "—"} / ${latest?.decliners ?? "—"}`],
       ]} />
       <SubHead>Macro</SubHead>
-      <Rows items={[["VIX", "vix"], ["HY credit spread", "hy_oas"], ["10y yield", "ust10y"], ["10y − 2y", "curve_10y2y"]]
-        .filter(([, k]) => macro[k])
-        .map(([label, k]) => [label, <span key={k}>{fmtNum(macro[k].value, 2)} <span className="text-muted">Δ20 </span>
-          <Num value={macro[k].chg_20obs} fmt={(x) => fmtNum(x, 2)} /></span>])} />
+      <Rows items={MACRO.flatMap(([label, k]) => {
+        const m = macro[k];
+        return m ? [[label, <span key={k}>{fmtNum(m.value, 2)} <span className="text-muted">Δ20 </span>
+          <Num value={m.chg_20obs} fmt={(x) => fmtNum(x, 2)} /></span>] as const] : [];
+      })} />
       <SubHead>Sectors by 63-day strength vs SPY</SubHead>
       <MiniList items={sectors.map((s) => [s.etf,
         <span key={s.etf}>{s.sector}<span className="text-muted"> · {fmtPct(s.pct_trend_stack, 0, false)} in trend</span></span>,
@@ -227,7 +243,7 @@ function Market({ day }) {
   );
 }
 
-export default function Today({ day }) {
+export default function Today({ day }: { day: Day }) {
   const a = day.analysis;
   const picks = [...a.candidates].sort((x, y) => y.conviction - x.conviction);
   const notes = a.market_notes.length + a.data_issues.length;

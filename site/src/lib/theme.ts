@@ -1,17 +1,20 @@
 // Theme preference: "auto" follows the OS; "light"/"dark" pin it. Stored per device.
 const THEME_STORE = "stonks.theme";
-export const THEMES = ["auto", "light", "dark"];
+export const THEMES = ["auto", "light", "dark"] as const;
+export type Theme = (typeof THEMES)[number];
 
-export function loadTheme() {
+const isTheme = (t: unknown): t is Theme => THEMES.includes(t as Theme);
+
+export function loadTheme(): Theme {
   try {
     const t = window.localStorage.getItem(THEME_STORE);
-    return THEMES.includes(t) ? t : "auto";
+    return isTheme(t) ? t : "auto";
   } catch {
     return "auto";
   }
 }
 
-export function applyTheme(theme) {
+export function applyTheme(theme: Theme): void {
   const root = document.documentElement;
   if (theme === "auto") root.removeAttribute("data-theme");
   else root.setAttribute("data-theme", theme);
@@ -20,6 +23,6 @@ export function applyTheme(theme) {
   } catch { /* storage blocked: preference lasts this page view */ }
 }
 
-export function nextTheme(theme) {
-  return THEMES[(THEMES.indexOf(theme) + 1) % THEMES.length];
+export function nextTheme(theme: Theme): Theme {
+  return THEMES[(THEMES.indexOf(theme) + 1) % THEMES.length] ?? "auto";
 }

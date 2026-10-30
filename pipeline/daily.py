@@ -325,8 +325,20 @@ def _update_ledger(root, as_of, result, feats, published_utc):
     return ordered
 
 
+def node_ts_args(version):
+    """Node flags to run a .ts file: none from 22.18 (types stripped by default),
+    --experimental-strip-types on 22.6-22.17, and older Node can't run it."""
+    major, minor = (int(x) for x in version.lstrip("v").split(".")[:2])
+    if (major, minor) >= (22, 18) or major >= 23:
+        return []
+    if (major, minor) >= (22, 6):
+        return ["--experimental-strip-types"]
+    raise RuntimeError(f"Node {version} can't run tools/*.ts; need >= 22.6 (22.18+ preferred)")
+
+
 def encrypt_dashboard(dash_dir):
     """Encrypt the plaintext payload into the public site (Node: stdlib has no AES-GCM)."""
-    script = os.path.join(REPO_ROOT, "tools", "encrypt-dashboard.mjs")
-    subprocess.run(["node", script, "--src", dash_dir, "--dst", SITE_DATA_DIR], check=True)
+    script = os.path.join(REPO_ROOT, "tools", "encrypt-dashboard.ts")
+    version = subprocess.run(["node", "--version"], check=True, capture_output=True, text=True).stdout.strip()
+    subprocess.run(["node", *node_ts_args(version), script, "--src", dash_dir, "--dst", SITE_DATA_DIR], check=True)
     log("publish.encrypted", dst=SITE_DATA_DIR)

@@ -2,15 +2,16 @@
   "name": "stonks-dashboard",
   "version": "1.0.0",
   "private": true,
-  "description": "Encrypted daily swing-scan dashboard (static, zero dependencies)",
+  "description": "Encrypted daily swing-scan dashboard (React + TypeScript, static)",
   "type": "module",
   "engines": {
-    "node": ">=22"
+    "node": ">=22.18"
   },
   "scripts": {
-    "dev": "vite --config vite.config.js",
-    "build": "node tools/build.mjs",
-    "test": "mkdir -p coverage && node --test --experimental-test-coverage --test-coverage-include='site/src/lib/**' --test-coverage-include='tools/**' --test-reporter=spec --test-reporter-destination=stdout --test-reporter=lcov --test-reporter-destination=coverage/lcov.info 'tests/**/*.test.mjs'"
+    "dev": "vite --config vite.config.ts",
+    "build": "node tools/build.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "npm run typecheck && mkdir -p coverage && node --test --experimental-test-coverage --test-coverage-include='site/src/lib/**' --test-coverage-include='tools/**' --test-reporter=spec --test-reporter-destination=stdout --test-reporter=lcov --test-reporter-destination=coverage/lcov.info 'tests/**/*.test.ts'"
   },
   "dependencies": {
     "react": "18.3.1",
@@ -18,8 +19,12 @@
   },
   "devDependencies": {
     "@tailwindcss/vite": "4.1.8",
+    "@types/node": "22.20.5",
+    "@types/react": "18.3.31",
+    "@types/react-dom": "18.3.7",
     "@vitejs/plugin-react": "4.5.0",
     "tailwindcss": "4.1.8",
+    "typescript": "6.0.3",
     "vite": "6.4.5"
   }
 }

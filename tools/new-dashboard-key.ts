@@ -2,7 +2,7 @@
 // =============================================================================
 // Generate a dashboard key and its one-tap unlock link.
 //
-//   node tools/new-dashboard-key.mjs [site-url]
+//   node tools/new-dashboard-key.ts [site-url]
 //
 // Run it in your own terminal, not inside an agent session, so the key never
 // lands in a transcript. Put the first line in the cloud environment's
@@ -10,7 +10,7 @@
 // it once per device unlocks the dashboard there for good. A new key replaces
 // the old one on the next daily run, and old links then stop working.
 // =============================================================================
-import { generateKeyText } from "../site/src/lib/crypto.js";
+import { generateKeyText } from "../site/src/lib/crypto.ts";
 
 const site = (process.argv[2] || "https://skathio.github.io/stonks/").replace(/#.*$/, "");
 const key = generateKeyText();

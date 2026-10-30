@@ -7,8 +7,9 @@ import { test } from "node:test";
 import {
   CHECK_AAD, decryptJson, encryptJson, extractKeyText, fromB64, fromB64Url, generateKeyText, importKeyText,
   isKeyText, makeKeyInfo, toB64, toB64Url, verifyKey,
-} from "../site/src/lib/crypto.js";
-import { encryptDashboard } from "../tools/encrypt-dashboard.mjs";
+} from "../site/src/lib/crypto.ts";
+import type { KeyInfo } from "../site/src/lib/types.ts";
+import { encryptDashboard } from "../tools/encrypt-dashboard.ts";
 
 const KEY = generateKeyText();
 
@@ -64,7 +65,7 @@ test("tampered ciphertext and unknown versions are rejected", async () => {
   const key = await importKeyText(KEY);
   const env = await encryptJson(key, { x: 1 }, "index.json");
   const ct = fromB64(env.ct);
-  ct[0] ^= 1;
+  ct[0] = (ct[0] ?? 0) ^ 1;
   await assert.rejects(decryptJson(key, { ...env, ct: toB64(ct) }, "index.json"));
   await assert.rejects(decryptJson(key, { ...env, v: 2 }, "index.json"), /unsupported/);
 });
@@ -74,7 +75,7 @@ test("keyinfo check verifies only the current key", async () => {
   const info = await makeKeyInfo(key);
   assert.equal(await verifyKey(key, info), true);
   assert.equal(await verifyKey(await importKeyText(generateKeyText()), info), false);
-  assert.equal(await verifyKey(key, {}), false);
+  assert.equal(await verifyKey(key, {} as KeyInfo), false); // malformed keyinfo
   assert.equal(CHECK_AAD, "keyinfo");
 });
 

@@ -6,7 +6,7 @@ import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from pipeline import analysis, features, history, ledger  # noqa: E402
+from pipeline import analysis, daily, features, history, ledger  # noqa: E402
 
 
 def days_from(start, n):
@@ -221,6 +221,15 @@ class LedgerPublishTime(unittest.TestCase):
         days = days_from(dt.date(2026, 10, 29), 2)
         p = ledger.evaluate(pick, days, [None, (100, 101, 99, 100, 1)], [None, (1, 1, 1, 1, 1)])
         self.assertEqual(p["entry_date"], "2026-10-30")
+
+
+class NodeTsFlags(unittest.TestCase):
+    def test_flags_by_node_version(self):
+        self.assertEqual(daily.node_ts_args("v26.2.0"), [])
+        self.assertEqual(daily.node_ts_args("v22.18.0"), [])
+        self.assertEqual(daily.node_ts_args("v22.12.0"), ["--experimental-strip-types"])
+        with self.assertRaises(RuntimeError):
+            daily.node_ts_args("v20.11.1")
 
 
 class RepoHygiene(unittest.TestCase):

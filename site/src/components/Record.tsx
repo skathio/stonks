@@ -1,12 +1,13 @@
 // Track record: headline tiles, then every pick as an expandable row.
-import { useState } from "react";
-import { convictionDots, fmtPct, fmtPrice, fmtR, setupLabel, shortDate, signClass, statusLabel, tradingViewUrl } from "../lib/format.js";
-import { Button, Card, Fold, Num, Rows } from "./ui.jsx";
+import { useState, type ReactNode } from "react";
+import { convictionDots, fmtPct, fmtPrice, fmtR, setupLabel, shortDate, signClass, statusLabel, tradingViewUrl } from "../lib/format.ts";
+import type { Horizon, Ledger, LedgerStats, Pick } from "../lib/types.ts";
+import { Button, Card, Fold, Num, Rows, SIGN } from "./ui.tsx";
 
-const STATUS_TONE = { open: "text-accent", stopped: "text-bad", complete: "text-good" };
-const SIGN = { up: "text-good", down: "text-bad", flat: "" };
+const STATUS_TONE: Partial<Record<Pick["status"], string>> = { open: "text-accent", stopped: "text-bad", complete: "text-good" };
+const HORIZONS: Horizon[] = ["5", "10", "20"];
 
-function Tile({ label, value, sub, valueClass = "" }) {
+function Tile({ label, value, sub, valueClass = "" }: { label: string; value: ReactNode; sub?: string; valueClass?: string }) {
   return (
     <div className="flex flex-col rounded-xl bg-surface-2 px-3 py-2.5">
       <span className="text-xs text-muted">{label}</span>
@@ -16,12 +17,15 @@ function Tile({ label, value, sub, valueClass = "" }) {
   );
 }
 
-function latestR(p) {
-  for (const k of ["20", "10", "5"]) if (p.r?.[k] != null) return p.r[k];
+function latestR(p: Pick): number | null {
+  for (const k of [...HORIZONS].reverse()) {
+    const r = p.r[k];
+    if (r != null) return r;
+  }
   return null;
 }
 
-function PickRow({ p }) {
+function PickRow({ p }: { p: Pick }) {
   const [open, setOpen] = useState(false);
   const r = latestR(p);
   return (
@@ -41,7 +45,7 @@ function PickRow({ p }) {
             ["Conviction", convictionDots(p.conviction)],
             ["Entry", p.entry != null ? `${fmtPrice(p.entry)} on ${shortDate(p.entry_date)}` : "—"],
             ["Stop / max entry", `${fmtPrice(p.stop)} / ${fmtPrice(p.entry_max)}`],
-            ["R at 5 / 10 / 20", ["5", "10", "20"].map((k) => fmtR(p.r?.[k])).join(" · ")],
+            ["R at 5 / 10 / 20", HORIZONS.map((k) => fmtR(p.r[k])).join(" · ")],
             ["Best / worst", `${fmtR(p.mfe_r)} / ${fmtR(p.mae_r != null ? -p.mae_r : null)}`],
             ["Targets hit", `${(p.targets_hit || []).filter(Boolean).length} of ${p.targets.length}`],
           ]} />
@@ -52,7 +56,7 @@ function PickRow({ p }) {
   );
 }
 
-function GroupList({ groups }) {
+function GroupList({ groups }: { groups: Record<string, LedgerStats> }) {
   return (
     <ul className="m-0 divide-y divide-line pl-0 text-sm">
       {Object.entries(groups).map(([k, s]) => (
@@ -66,7 +70,7 @@ function GroupList({ groups }) {
   );
 }
 
-export default function Record({ ledger }) {
+export default function Record({ ledger }: { ledger: Ledger }) {
   const s = ledger.stats.all;
   const picks = [...ledger.picks].reverse();
   return (
