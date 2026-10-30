@@ -84,15 +84,24 @@ function TabBar({ index, active, date }: { index: DashboardIndex; active: Sectio
         lg:sticky lg:top-[4.25rem] lg:mb-4 lg:inline-flex lg:h-auto lg:gap-1 lg:rounded-xl lg:border lg:p-1">
       <Tab href={`#/day/${index.latest}`} active={active === "today"} icon="◎">Today</Tab>
       <Tab href="#/record" active={active === "record"} icon="↗">Record</Tab>
-      <label className={`flex flex-1 flex-col items-center justify-center gap-0.5 text-xs lg:flex-none lg:flex-row lg:gap-1.5 lg:px-3 ${
-        active === "archive" ? "font-semibold text-accent" : "text-muted"}`}>
+      {/* Styled like a tab; an invisible native select covers it, so the picker is still the
+          OS one (good on phones). Until a past day is open it reads "Archive", not the latest
+          date, which would just repeat the Today tab. */}
+      <div className={`relative flex flex-1 flex-col items-center justify-center gap-0.5 text-xs focus-within:ring-2 focus-within:ring-accent lg:flex-none lg:flex-row lg:gap-1.5 lg:rounded-lg lg:px-3.5 lg:py-2 lg:text-sm lg:hover:bg-surface-2 ${
+        active === "archive" ? "font-semibold text-accent lg:bg-surface-2" : "text-muted"}`}>
         <span aria-hidden="true" className="text-lg leading-none lg:text-base">☰</span>
-        <select aria-label="Archive date" value={date ?? index.latest}
-          onChange={(e) => { location.hash = `#/day/${e.target.value}`; }}
-          className="appearance-none bg-transparent text-center text-inherit">
-          {[...index.days].reverse().map((d) => <option key={d} value={d}>{shortDate(d)}</option>)}
+        <span aria-hidden="true" className="flex items-center gap-1">
+          {active === "archive" && date ? shortDate(date) : "Archive"}
+          <span className="text-[0.7em] opacity-70">▾</span>
+        </span>
+        <select aria-label="Archive date" value={active === "archive" ? date : ""}
+          onChange={(e) => { if (e.target.value) location.hash = `#/day/${e.target.value}`; }}
+          className="absolute inset-0 h-full w-full cursor-pointer appearance-none opacity-0">
+          {active !== "archive" && <option value="" disabled>Archive</option>}
+          {[...index.days].reverse().map((d) => (
+            <option key={d} value={d}>{d === index.latest ? `${shortDate(d)} (today)` : shortDate(d)}</option>))}
         </select>
-      </label>
+      </div>
     </nav>
   );
 }
