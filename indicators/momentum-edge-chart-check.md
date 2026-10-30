@@ -37,7 +37,7 @@ The compact panel shows the setup, volume, extension, next earnings date (as Tra
 it) and **Past signals**. The full panel adds the SPY gate, trend stack, RS vs SPY, distance to the
 prior-20 and 52-week highs, base range, ATR % and the levels mode.
 
-**Past signals** reads like `7 · 57% up · avg +0.6R · T1 3`: seven past trades, 57% closed
+**Past signals** reads like `7 trades · 57% up`, `avg +0.6R · T1 3`: seven past trades, 57% closed
 positive after costs, an average of +0.6R after costs, and three reached target 1. Under 30 trades
 it says "small n" and stays grey, the same threshold the dashboard's Record tab uses. When pinned
 to a dashboard date it adds "to today", because it still counts trades after that date. It's this one stock's history, so treat it as context, not as a track record. The
@@ -71,7 +71,8 @@ Values close to a threshold turn amber. Vendor data can differ slightly near a b
 | Display | EMAs, structure, levels, panel | on | Toggle each layer |
 | | Borderline band (%) | 5 | How close to a threshold counts as amber |
 | | Markers: last N bars | 120 | Older markers are hidden (0 = all) |
-| Panel | Position / text size / compact | bottom left / small / on | Where and how big; compact shows the six rows you act on |
+| Panel | Position / text size / compact | bottom right / small / on | Where and how big; compact shows the six rows you act on |
+| | Tall panel | on | One narrow column, each label above its value, so it covers less of the chart on a phone. Off = two columns |
 | History | Show past trade windows | on | Draw the past trades (the panel row is always on) |
 | | History window (bars) | 504 | Only signals in the last N bars count (about two years; max 2000) |
 
