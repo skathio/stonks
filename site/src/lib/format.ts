@@ -137,15 +137,7 @@ export function shortDate(iso: unknown): string {
   return `${WEEKDAYS[d.getUTCDay()]} ${MONTHS[d.getUTCMonth()]} ${d.getUTCDate()}`;
 }
 
-/** Compact earnings chip text + tone. */
-export function earningsChip(earnings: Earnings | null | undefined, horizon: unknown): Note {
-  if (!earnings) return { text: "Earnings: none scheduled", tone: "muted" };
-  const n = earnings.sessions_away;
-  const inside = isNum(n) && isNum(horizon) && n <= horizon;
-  return { text: `Earnings ${shortDate(earnings.date)} · ${n}d${earnings.conflict ? " ⚠" : ""}`, tone: inside ? "warn" : "muted", inside };
-}
-
-/** v2 earnings line: next report (or its estimate) and how many fall inside the hold. */
+/** Earnings line: next report (or its estimate) and how many fall inside the hold. */
 export function nextReport(earnings: Earnings | null | undefined, inHold: unknown): Note {
   if (!earnings) return { text: "Next report: no date", tone: "muted" };
   const when = `${shortDate(earnings.date)}${earnings.estimated ? " (est.)" : ""}, ${earnings.sessions_away} sessions`;

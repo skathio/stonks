@@ -73,8 +73,8 @@ test("routeFromHash", () => {
   assert.deepEqual(routeFromHash("#/day/../../etc"), { view: "day", date: null });
 });
 
-test("pctFrom, firstSentence, shortDate, earningsChip", async () => {
-  const { pctFrom, firstSentence, shortDate, earningsChip } = await import("../site/src/lib/format.ts");
+test("pctFrom, firstSentence, shortDate", async () => {
+  const { pctFrom, firstSentence, shortDate } = await import("../site/src/lib/format.ts");
   assert.equal(pctFrom(100, 110), 10);
   assert.equal(pctFrom(0, 5), null);
   assert.equal(pctFrom(null, 5), null);
@@ -83,11 +83,6 @@ test("pctFrom, firstSentence, shortDate, earningsChip", async () => {
   assert.equal(firstSentence("x".repeat(300), 20).length, 20);
   assert.equal(shortDate("2026-10-28"), "Wed Oct 28");
   assert.equal(shortDate("bad"), "bad");
-  assert.equal(earningsChip(null, 20).tone, "muted");
-  const soon = earningsChip({ date: "2026-11-05", sessions_away: 5, conflict: true }, 20);
-  assert.equal(soon.inside, true);
-  assert.match(soon.text, /Thu Nov 5 · 5d ⚠/);
-  assert.equal(earningsChip({ date: "2026-12-20", sessions_away: 36 }, 20).inside, false);
 });
 
 test("momentum size scale formatting and tone", () => {

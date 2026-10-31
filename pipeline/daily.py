@@ -285,10 +285,10 @@ def _cik_map(root):
 # Publish
 # =============================================================================
 def open_book(root, as_of):
-    """Open position rows of the current rules opened before `as_of` (today's rows are this run's,
-    so a re-publish stays idempotent)."""
+    """Open position rows opened before `as_of` (today's rows are this run's, so a re-publish
+    stays idempotent)."""
     return [r for r in read_json(os.path.join(root, "ledger.json"), [])
-            if ledger.version_of(r) == ledger.RULES_VERSION and ledger.is_open(r) and r["as_of"] < as_of]
+            if ledger.is_open(r) and r["as_of"] < as_of]
 
 
 def book_view(rows, feats, earnings, reviews=()):
@@ -373,7 +373,7 @@ def publish(root, as_of=None, encrypt=True):
     picks = _update_ledger(root, as_of, result, feats, published_utc, scale)
     risk_on = bool((market["benchmarks"].get("SPY") or {}).get("risk_on_gate"))
     control = _update_control(root, as_of, feats, risk_on, earnings, members, picks, published_utc, scale)
-    held = [p for p in picks if ledger.version_of(p) == ledger.RULES_VERSION and ledger.is_open(p) and p["as_of"] < as_of]
+    held = [p for p in picks if ledger.is_open(p) and p["as_of"] < as_of]
     day_payload = {"as_of": as_of, "generated_utc": published_utc,
                    "analysis": result,
                    "book": book_view(held, feats, earnings, result["reviews"]),
@@ -412,7 +412,7 @@ def _update_control(root, as_of, feats, risk_on, earnings, members, picks, publi
     rows = {r["id"]: r for r in read_json(path, [])}
     picked = {p["ticker"] for p in picks if p["as_of"] == as_of}
     held = {r["ticker"] for r in rows.values()
-            if ledger.version_of(r) == ledger.RULES_VERSION and ledger.is_open(r) and r["as_of"] < as_of}
+            if ledger.is_open(r) and r["as_of"] < as_of}
     for ticker, f in sorted(feats.items()):
         setup = ledger.control_setup(f, risk_on)
         nxt = (earnings.get(ticker) or {}).get("next")
@@ -430,8 +430,6 @@ def _update_control(root, as_of, feats, risk_on, earnings, members, picks, publi
 
 
 def _evaluate_and_write(root, path, rows):
-    for r in rows.values():
-        r.setdefault("rules_version", "v1")  # rows written before rules versioning
     tickers = sorted({r["ticker"] for r in rows.values()} | {"SPY", "RSP"})
     days, panel = history.load_panel(root, tickers)
     splits = history.split_factors(read_json(history._paths(root)["splits"], []), days[-1]) if days else {}

@@ -390,16 +390,13 @@ class ControlArm(unittest.TestCase):
             s = ledger.control_stats(rows)
             self.assertEqual((s["all"]["picks"], s["picked"]["picks"], s["unpicked"]["picks"]), (3, 1, 2))
 
-    def test_one_open_row_per_ticker_and_v1_rows_kept(self):
+    def test_one_open_row_per_ticker(self):
         with tempfile.TemporaryDirectory() as root:
             old = ledger.new_pick("2026-10-28", {"ticker": "BBB", "setup": "breakout", "conviction": 0, "stop_atr": 2.0},
                                   {"ref_close": 100, "atr": 2, "stop": 96, "entry_max": 101, "targets": [108]},
                                   {}, "Tech", "2026-10-29T06:05:00+00:00")
-            del old["rules_version"]  # written before versioning
-            open_v2 = dict(old, id="2026-10-28:AAA", ticker="AAA", rules_version="v2")
-            daily.write_json(os.path.join(root, "control.json"), [old, open_v2])
+            daily.write_json(os.path.join(root, "control.json"), [old])
             rows = self._run(root, [])
-            ids = {r["id"]: r for r in rows}
-            self.assertNotIn("2026-10-29:AAA", ids)        # AAA is still open under v2
-            self.assertIn("2026-10-29:BBB", ids)           # BBB's open row is v1: the v2 arm starts fresh
-            self.assertEqual(ids["2026-10-28:BBB"]["rules_version"], "v1")
+            ids = {r["id"] for r in rows}
+            self.assertNotIn("2026-10-29:BBB", ids)        # BBB is still open: no second row
+            self.assertIn("2026-10-29:AAA", ids)

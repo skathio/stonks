@@ -2,9 +2,8 @@
 # Forward-tracked pick ledger: the only honest validation an LLM-driven
 # analysis can have, because there is no look-ahead-free way to backtest it.
 #
-# Rules v2 (2026-10-30): position trades held 2-6 months. v1 rows (swing
-# levels: 2 ATR stops) are kept, tagged rules_version "v1", and graded on the
-# same marks, so nothing is rewritten.
+# Rules v2 (2026-10-30): position trades held 2-6 months. The ledger holds
+# only rows made under the current rules; a rules change resets the data.
 #
 # Fill model (deliberately conservative):
 #   - Entry is the open of the first session that opens (09:30 ET) AFTER the
@@ -208,14 +207,9 @@ def summarize(group):
     return out
 
 
-def version_of(row):
-    return row.get("rules_version") or "v1"
-
-
-def control_stats(rows, version=RULES_VERSION):
-    """Agent selection vs the bare signal, on the current rules' rows (identical levels)."""
-    rows = [r for r in rows if version_of(r) == version]
-    return {"version": version,
+def control_stats(rows):
+    """Agent selection vs the bare signal (identical levels)."""
+    return {"version": RULES_VERSION,
             "all": summarize(rows),
             "picked": summarize([r for r in rows if r["picked"]]),
             "unpicked": summarize([r for r in rows if not r["picked"]]),
@@ -230,15 +224,12 @@ def control_stats(rows, version=RULES_VERSION):
 
 def stats(picks):
     """Aggregate track record. Small samples are flagged, never hidden."""
-    current = [p for p in picks if version_of(p) == RULES_VERSION]
-    by_conviction = {str(k): summarize([p for p in current if p["conviction"] == k]) for k in range(1, 6)}
+    by_conviction = {str(k): summarize([p for p in picks if p["conviction"] == k]) for k in range(1, 6)}
     by_setup = {}
-    for p in current:
+    for p in picks:
         by_setup.setdefault(p["setup"], []).append(p)
-    versions = sorted({version_of(p) for p in picks})
     return {"version": RULES_VERSION, "headline": HEADLINE, "horizons": list(HORIZONS),
-            "all": summarize(current),
-            "by_version": {v: summarize([p for p in picks if version_of(p) == v]) for v in versions},
+            "all": summarize(picks),
             "by_conviction": {k: v for k, v in by_conviction.items() if v["picks"]},
             "by_setup": {k: summarize(v) for k, v in sorted(by_setup.items())},
             "cost_assumption": "Costs: 0.10% commission + 0.10% slippage round trip"}

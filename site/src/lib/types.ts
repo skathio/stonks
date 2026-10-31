@@ -59,10 +59,10 @@ export interface Levels {
   ref_close: number;
   stop: number;
   stop_pct: number;
-  /** v2: the +20% reference level (never an exit); v1: profit targets. */
+  /** The +20% reference level (never an exit). */
   targets: number[];
-  targets_r?: number[];
-  /** Account % for the position: 1% risk at the stop x momentum size scale (v2). */
+  targets_r: number[];
+  /** Account % for the position: 1% risk at the stop x momentum size scale. */
   position_pct?: number | null;
 }
 
@@ -77,20 +77,16 @@ export interface Candidate {
   risks: string[];
   invalidation: string;
   earnings: Earnings | null;
-  /** v1 days only. */
-  earnings_inside_horizon?: boolean;
-  /** v2: reports expected inside the planned hold. */
-  reports_in_hold?: number;
-  earnings_plan?: string | null;
-  upside_case?: string;
+  /** Reports expected inside the planned hold. */
+  reports_in_hold: number;
+  earnings_plan: string;
+  upside_case: string;
   chart_checks: string[];
   features: Features;
   levels: Levels;
   horizon_sessions: number;
   max_chase_atr: number;
   stop_atr: number;
-  /** v1 days only. */
-  targets_r?: number[];
   news?: NewsItem[];
 }
 
@@ -121,8 +117,8 @@ export interface Analysis {
   as_of: string;
   regime: Regime;
   candidates: Candidate[];
-  /** v2: the agent's calls on open positions. */
-  reviews?: Review[];
+  /** The agent's calls on open positions. */
+  reviews: Review[];
   prompt_version?: string;
   watchlist: WatchItem[];
   avoid: AvoidItem[];
@@ -243,9 +239,9 @@ export interface Day {
   analysis: Analysis;
   market: Market;
   momentum?: Momentum | null;
-  /** v2 days: open positions and the book limits. */
-  book?: Position[];
-  limits?: BookLimits;
+  /** Open positions and the book limits. */
+  book: Position[];
+  limits: BookLimits;
   breadth: BreadthDay[];
 }
 
@@ -285,7 +281,6 @@ export interface Pick {
   size_scale?: number | null;
   position_pct?: number | null;
   horizon_sessions?: number | null;
-  /** "v1" = swing rules (2 ATR), "v2" = position rules. */
   rules_version?: string;
 }
 
@@ -313,7 +308,6 @@ export interface Ledger {
     version?: string;
     headline?: number;
     all: LedgerStats;
-    by_version?: Record<string, LedgerStats>;
     by_conviction: Record<string, LedgerStats>;
     by_setup: Record<string, LedgerStats>;
     cost_assumption: string;
