@@ -20,8 +20,6 @@ function latest(p: Pick): { pct: number | null; exRsp: number | null; label: str
   return { pct: null, exRsp: null, label: "" };
 }
 
-const version = (p: Pick) => p.rules_version ?? "v1";
-
 function PickRow({ p }: { p: Pick }) {
   const [open, setOpen] = useState(false);
   const l = latest(p);
@@ -31,7 +29,7 @@ function PickRow({ p }: { p: Pick }) {
         className="flex min-h-14 w-full items-center gap-3 bg-transparent py-2 text-left text-ink">
         <span className="min-w-14 font-extrabold">{p.ticker}</span>
         <span className="flex min-w-0 flex-1 flex-col text-xs">
-          <span>{shortDate(p.as_of)}, {setupLabel(p.setup)}{version(p) === "v1" ? ", swing rules" : ""}</span>
+          <span>{shortDate(p.as_of)}, {setupLabel(p.setup)}</span>
           <span className={STATUS_TONE[p.status] ?? "text-muted"}>{statusLabel(p.status)}{l.label ? `, ${l.label}` : ""}</span>
         </span>
         <span className="text-right">
@@ -91,7 +89,7 @@ function PickTable({ picks }: { picks: Pick[] }) {
           {picks.map((p) => (
             <tr key={p.id} className="hover:bg-surface-2/60">
               <td className={`${TD} whitespace-nowrap text-muted`}>
-                {shortDate(p.as_of)}{version(p) === "v1" && <span className="block text-xs">swing rules</span>}
+                {shortDate(p.as_of)}
               </td>
               <td className={TD}>
                 <ExtLink href={tradingViewUrl(p.ticker)} className="font-extrabold text-ink no-underline hover:text-accent hover:underline">{p.ticker}</ExtLink>
@@ -162,8 +160,7 @@ export default function Record({ ledger }: { ledger: Ledger }) {
         )}
         <p className="mt-3 text-xs text-muted">
           Entry at the first open after publishing; a wide stop is the only exit before 126 sessions. {ledger.stats.cost_assumption}.
-          Every result is shown next to RSP (equal weight) and SPY held over the same window. Positions under the old swing rules
-          (2 ATR stops) are kept and marked the same way.
+          Every result is shown next to RSP (equal weight) and SPY held over the same window.
         </p>
       </Card>
       <h2 className="mx-0.5 mb-2.5 flex flex-wrap items-baseline gap-x-2 text-lg font-bold">
@@ -187,10 +184,6 @@ export default function Record({ ledger }: { ledger: Ledger }) {
           </Fold>
         )}
         <div>
-          {ledger.stats.by_version && (
-            <Fold title="By rules"><GroupList groups={ledger.stats.by_version}
-              label={(k) => (k === "v1" ? "Swing rules (v1)" : k === "v2" ? "Position rules (v2)" : k)} /></Fold>
-          )}
           <Fold title="By conviction"><GroupList groups={ledger.stats.by_conviction} label={(k) => `Conviction ${k}`} /></Fold>
           <Fold title="By setup"><GroupList groups={ledger.stats.by_setup} label={setupLabel} /></Fold>
         </div>
